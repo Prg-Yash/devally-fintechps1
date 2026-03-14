@@ -11,11 +11,12 @@ dotenv.config();
 const app = express();
 
 // Global Middleware
-app.use(
-  cors({
-    origin: [/^http:\/\/localhost:\d+$/],
-  }),
-);
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-thirdweb-signature']
+  // credentials: true -> Cannot use credentials: true when origin is '*'
+}));
 
 // Global JSON parsing generally goes here, but we excluded it because Webhooks need raw strings.
 // Parse JSON for all routes except Razorpay webhook which needs raw request body.

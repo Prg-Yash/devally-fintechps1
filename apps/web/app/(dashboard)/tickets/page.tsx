@@ -1,7 +1,23 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, PlusCircle } from "lucide-react";
+import { 
+  AlertTriangle, 
+  Loader2, 
+  PlusCircle, 
+  ShieldAlert, 
+  LifeBuoy, 
+  Gavel, 
+  Search, 
+  Filter, 
+  ArrowUpRight, 
+  Clock, 
+  CheckCircle2, 
+  AlertCircle, 
+  ChevronRight,
+  Plus
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
@@ -39,6 +55,26 @@ interface AgreementOption {
   counterpartyEmail: string;
 }
 
+// ─── Animation Variants ───
+const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 };
+const HOVER_SCALE = { scale: 1.01, transition: SPRING };
+const BUTTON_PRESS = { scale: 0.98 };
+
+const maskedReveal = {
+  hidden: { y: 12, opacity: 0 },
+  visible: { y: 0, opacity: 1, transition: { type: "spring" as const, stiffness: 120, damping: 20 } },
+};
+
+const stagger = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 15 },
+  visible: { opacity: 1, y: 0, transition: SPRING }
+};
+
 export default function TicketsPage() {
   const { data: session } = authClient.useSession();
 
@@ -49,6 +85,9 @@ export default function TicketsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [ticketDirection, setTicketDirection] = useState<TicketDirection | "">("");
+  const [activeTab, setActiveTab] = useState<"raised" | "received">("raised");
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [isAuditOpen, setIsAuditOpen] = useState(false);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -202,155 +241,367 @@ export default function TicketsPage() {
   const getStatusStyle = (status: string) => {
     switch (status.toUpperCase()) {
       case "OPEN":
-        return "bg-yellow-100 text-yellow-800";
+        return "bg-yellow-100 text-yellow-800 border-yellow-200/50";
       case "IN_REVIEW":
-        return "bg-blue-100 text-blue-800";
+        return "bg-blue-100 text-blue-800 border-blue-200/50";
       case "RESOLVED":
-        return "bg-green-100 text-green-800";
+        return "bg-[#D9F24F]/20 text-[#1A2406] border-[#D9F24F]/30";
       case "CLOSED":
-        return "bg-gray-200 text-gray-800";
+        return "bg-gray-100 text-gray-800 border-gray-200";
       case "REJECTED":
-        return "bg-red-100 text-red-800";
+        return "bg-red-100 text-red-800 border-red-200/50";
       default:
         return "bg-gray-100 text-gray-700";
     }
   };
 
+  const getStatusIcon = (status: string) => {
+    switch (status.toUpperCase()) {
+      case "OPEN": return <AlertCircle className="w-3.5 h-3.5" />;
+      case "IN_REVIEW": return <Clock className="w-3.5 h-3.5" />;
+      case "RESOLVED": return <CheckCircle2 className="w-3.5 h-3.5" />;
+      case "REJECTED": return <AlertTriangle className="w-3.5 h-3.5" />;
+      default: return <Clock className="w-3.5 h-3.5" />;
+    }
+  };
+
   const TicketCard = ({ ticket, mode }: { ticket: Ticket; mode: "raised" | "received" }) => (
-    <Card className="border-gray-200">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-lg">{ticket.title}</CardTitle>
-            <CardDescription className="mt-1">
-              {mode === "raised"
-                ? `Against: ${ticket.againstUser.name} (${ticket.againstUser.email})`
-                : `Raised by: ${ticket.raisedBy.name} (${ticket.raisedBy.email})`}
-            </CardDescription>
+    <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
+      <Card className="group relative bg-white/40 backdrop-blur-xl border border-white/60 rounded-[28px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:border-[#1A2406]/10 transition-all duration-500">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/30 to-transparent pointer-events-none" />
+        
+        <CardHeader className="pb-3 relative z-10">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 ${getStatusStyle(ticket.status)}`}>
+                  {getStatusIcon(ticket.status)}
+                  {ticket.status}
+                </Badge>
+                <span className="text-[10px] font-mono text-[#1A2406]/20 font-bold uppercase tracking-widest">#{ticket.id.slice(-6)}</span>
+              </div>
+              <CardTitle className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight mt-2 flex items-center gap-2">
+                {ticket.title}
+                <ChevronRight className="w-4 h-4 text-[#1A2406]/10 group-hover:translate-x-1 transition-transform" />
+              </CardTitle>
+            </div>
+            <div className="p-2.5 bg-white/80 rounded-xl border border-white shadow-sm shrink-0">
+              <Gavel className="w-5 h-5 text-[#1A2406]" />
+            </div>
           </div>
-          <Badge variant="outline" className={getStatusStyle(ticket.status)}>{ticket.status}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-gray-700">{ticket.description}</p>
-        <div className="grid grid-cols-1 gap-2 text-sm text-gray-600 md:grid-cols-2">
-          <p><span className="font-medium">Reason:</span> {ticket.reason}</p>
-          <p><span className="font-medium">Created:</span> {new Date(ticket.createdAt).toLocaleString()}</p>
-          {ticket.agreement ? (
-            <p className="md:col-span-2"><span className="font-medium">Agreement:</span> {ticket.agreement.title} ({ticket.agreement.id})</p>
-          ) : null}
-          {ticket.evidenceUrl ? (
-            <p className="md:col-span-2 break-all"><span className="font-medium">Evidence:</span> {ticket.evidenceUrl}</p>
-          ) : null}
-        </div>
-  
-      </CardContent>
-    </Card>
+          <CardDescription className="text-xs font-medium text-[#1A2406]/40 flex items-center gap-2 mt-1">
+            {mode === "raised" ? (
+              <>Against: <span className="text-[#1A2406]">{ticket.againstUser.name}</span></>
+            ) : (
+              <>Raised by: <span className="text-[#1A2406]">{ticket.raisedBy.name}</span></>
+            )}
+            <span className="opacity-20">•</span>
+            <span>{new Date(ticket.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="space-y-4 relative z-10">
+          <p className="text-sm text-[#1A2406]/70 leading-relaxed line-clamp-2 italic font-serif">
+            "{ticket.description}"
+          </p>
+          
+          <div className="grid grid-cols-2 gap-4 pb-2">
+            <div className="space-y-1">
+              <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none">Category</p>
+              <p className="text-[11px] font-bold text-[#1A2406]">{ticket.reason.replace('_', ' ')}</p>
+            </div>
+            {ticket.agreement && (
+              <div className="space-y-1">
+                <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none">Linked Agreement</p>
+                <p className="text-[11px] font-bold text-[#1A2406] truncate max-w-[120px]">{ticket.agreement.title}</p>
+              </div>
+            )}
+          </div>
+          
+          <div className="pt-3 border-t border-white/40 flex items-center justify-between">
+            <div className="flex -space-x-2">
+              <div className="w-7 h-7 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[10px] font-bold">JD</div>
+              <div className="w-7 h-7 rounded-full bg-[#D9F24F] border-2 border-white flex items-center justify-center text-[10px] font-bold">NX</div>
+            </div>
+            <button 
+              onClick={() => {
+                setSelectedTicket(ticket);
+                setIsAuditOpen(true);
+              }}
+              className="text-[10px] font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#1A2406] transition-colors flex items-center gap-1"
+            >
+              Detailed Audit <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
   );
 
+  const tabs = [
+    { id: "raised", label: "Raised by Me", count: raisedTickets.length },
+    { id: "received", label: "Against Me", count: receivedTickets.length },
+  ];
+
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight text-gray-900">Dispute Tickets</h1>
-          <p className="mt-2 text-gray-500">Raise tickets when work is not completed or payment is not released on time.</p>
+    <motion.div
+      variants={stagger}
+      initial="hidden"
+      animate="visible"
+      className="mx-auto max-w-6xl space-y-8 pt-2 pb-10"
+    >
+      {/* ── Greeting Section (Dashboard Style) ── */}
+      <motion.div variants={maskedReveal} className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-2">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="bg-[#1A2406] text-[#D9F24F] text-[10px] font-bold tracking-[0.2em] px-3 py-1.5 rounded-full border border-[#D9F24F]/20 flex items-center gap-1.5 uppercase leading-none shadow-lg shadow-[#1A2406]/10">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              Nexus Justice Protocol: Active
+            </span>
+          </div>
+          <h1 className="font-jakarta text-4xl tracking-[-0.04em] text-[#1A2406]">
+            Dispute <span className="font-light text-[#1A2406]/40">Resolution</span>
+          </h1>
+          <p className="font-sans text-[#1A2406]/30 text-sm font-medium">
+            Manage conflicts, audit agreements, and secure your transactions.
+          </p>
         </div>
-
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-red-600 hover:bg-red-700">
-              <PlusCircle className="mr-2 h-4 w-4" />Raise Ticket
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Raise a Dispute Ticket</DialogTitle>
-              <DialogDescription>Select an agreement to auto-detect incoming/outgoing and accused user.</DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="title">Title *</Label>
-                <Input id="title" type="text" value={formData.title} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, title: e.target.value })} placeholder="Payment not released after milestone completion" />
+        
+        <div className="flex items-center gap-3">
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <motion.div whileHover={HOVER_SCALE} whileTap={BUTTON_PRESS}>
+                <button className="rounded-xl bg-[#1A2406] text-white px-6 py-3 text-xs font-bold tracking-tight flex items-center gap-2 shadow-2xl shadow-[#1A2406]/20 active:scale-95 transition-all">
+                  <PlusCircle className="w-4 h-4 text-[#D9F24F]" />
+                  Raise New Dispute
+                </button>
+              </motion.div>
+            </DialogTrigger>
+            
+            <DialogContent className="max-w-2xl bg-white border border-black/5 rounded-2xl shadow-xl overflow-hidden p-0">
+              <div className="bg-[#1A2406] p-6 text-white relative">
+                <DialogTitle className="text-xl font-jakarta font-bold tracking-tight">Raise Dispute</DialogTitle>
+                <DialogDescription className="text-white/40 text-[11px] font-medium uppercase tracking-[0.05em] mt-0.5">
+                  Nexus Arbitration Protocol - Investigation 0x{Math.random().toString(16).slice(2, 8).toUpperCase()}
+                </DialogDescription>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="description">Description *</Label>
-                <Input id="description" type="text" value={formData.description} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, description: e.target.value })} placeholder="Explain what happened and when" />
-              </div>
+              <div className="p-6 space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="title" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Title *</Label>
+                    <Input id="title" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="Brief non-compliance summary" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="againstUserEmail" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Accused User Email *</Label>
+                    <Input id="againstUserEmail" type="email" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.againstUserEmail} onChange={(e) => setFormData({ ...formData, againstUserEmail: e.target.value })} readOnly={Boolean(formData.agreementId)} placeholder="user@example.com" />
+                  </div>
+                </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="reason">Reason *</Label>
-                  <Input id="reason" type="text" value={formData.reason} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, reason: e.target.value.toUpperCase() })} placeholder="NON_PAYMENT" />
+                <div className="space-y-1.5">
+                  <Label htmlFor="description" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Evidence Narration *</Label>
+                  <textarea 
+                    id="description" 
+                    className="w-full rounded-lg border border-black/[0.1] bg-white p-3 text-sm min-h-[80px] outline-none focus:ring-1 focus:ring-[#1A2406]/10" 
+                    value={formData.description} 
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })} 
+                    placeholder="Describe facts and non-compliance details..."
+                  />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="agreementSelect">Agreement</Label>
-                  <select id="agreementSelect" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formData.agreementId} onChange={(e) => handleAgreementChange(e.target.value)}>
-                    <option value="">No linked agreement</option>
-                    {agreements.map((agreement) => (
-                      <option key={agreement.id} value={agreement.id}>{agreement.title} ({agreement.direction}) - {agreement.counterpartyName}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="ticketDirection">Direction (auto)</Label>
-                  <Input id="ticketDirection" type="text" value={ticketDirection ? ticketDirection.toUpperCase() : "NOT_SELECTED"} readOnly />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="agreementSelect" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Agreement</Label>
+                    <div className="relative">
+                      <select id="agreementSelect" className="w-full h-11 rounded-lg border border-black/[0.1] bg-white px-3 text-sm appearance-none outline-none focus:ring-1 focus:ring-[#1A2406]/10" value={formData.agreementId} onChange={(e) => handleAgreementChange(e.target.value)}>
+                        <option value="">Independent Dispute</option>
+                        {agreements.map((agreement) => (
+                          <option key={agreement.id} value={agreement.id}>{agreement.title}</option>
+                        ))}
+                      </select>
+                      <Plus className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#1A2406]/20 pointer-events-none" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reason" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Reason *</Label>
+                    <Input id="reason" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value.toUpperCase() })} placeholder="e.g. NON_PAYMENT" />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="againstUserEmail">Accused User Email *</Label>
-                  <Input id="againstUserEmail" type="email" value={formData.againstUserEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, againstUserEmail: e.target.value })} readOnly={Boolean(formData.agreementId)} placeholder="user@example.com" />
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="agreementId">Agreement ID</Label>
-                  <Input id="agreementId" type="text" value={formData.agreementId} readOnly placeholder="Auto-filled from dropdown" />
+                <div className="space-y-1.5">
+                  <Label htmlFor="evidenceUrl" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Evidence Link</Label>
+                  <Input id="evidenceUrl" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.evidenceUrl} onChange={(e) => setFormData({ ...formData, evidenceUrl: e.target.value })} placeholder="https://..." />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="evidenceUrl">Evidence URL (optional)</Label>
-                  <Input id="evidenceUrl" type="text" value={formData.evidenceUrl} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, evidenceUrl: e.target.value })} placeholder="https://..." />
-                </div>
-              </div>
 
-              <Button className="w-full" disabled={isSubmitting} onClick={handleCreateTicket}>
-                {isSubmitting ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Raising Ticket...</>) : ("Submit Ticket")}
-              </Button>
+                <motion.div whileTap={BUTTON_PRESS}>
+                  <Button className="w-full h-12 rounded-xl bg-[#1A2406] text-[#D9F24F] font-bold text-sm tracking-tight" disabled={isSubmitting} onClick={handleCreateTicket}>
+                    {isSubmitting ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Filing...</>) : ("Execute Dispute Request")}
+                  </Button>
+                </motion.div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </motion.div>
+
+      {/* ── Tabs (Profile Style) ── */}
+      <motion.div variants={maskedReveal} className="relative border-b border-black/[0.05] mb-8">
+        <div className="flex gap-8 overflow-x-auto scrollbar-none">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`relative pb-4 px-1 text-xs font-bold uppercase tracking-widest transition-all duration-300 whitespace-nowrap
+                ${activeTab === tab.id ? "text-[#1A2406]" : "text-[#1A2406]/30 hover:text-[#1A2406]/60"}`}
+            >
+              <div className="flex items-center gap-2">
+                {tab.label}
+                <span className={`px-1.5 py-0.5 rounded-md text-[9px] ${activeTab === tab.id ? 'bg-[#1A2406] text-white' : 'bg-black/[0.05]'}`}>
+                  {tab.count}
+                </span>
+              </div>
+              {activeTab === tab.id && (
+                <motion.div
+                  layoutId="active-ticket-tab"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#D9F24F] shadow-[0_0_10px_rgba(217,242,79,0.8)]"
+                />
+              )}
+            </button>
+          ))}
+        </div>
+      </motion.div>
+
+      {/* ── Content ── */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, x: 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -10 }}
+          transition={{ duration: 0.3 }}
+          className="space-y-6"
+        >
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-24 space-y-4">
+              <Loader2 className="w-8 h-8 animate-spin text-[#1A2406]/10" />
+              <p className="text-[10px] font-bold tracking-[0.2em] text-[#1A2406]/20 uppercase">Synchronizing Ledgers</p>
             </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      <Tabs defaultValue="raised" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="raised">Raised by Me ({raisedTickets.length})</TabsTrigger>
-          <TabsTrigger value="received">Against Me ({receivedTickets.length})</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="raised" className="space-y-4">
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />Loading raised tickets...</div>
-          ) : raisedTickets.length === 0 ? (
-            <Card><CardContent className="flex items-center justify-center gap-2 py-10 text-gray-500"><AlertTriangle className="h-4 w-4" />No raised tickets yet.</CardContent></Card>
+          ) : (activeTab === "raised" ? raisedTickets : receivedTickets).length === 0 ? (
+            <motion.div 
+              variants={itemVariants} 
+              className="bg-white/40 backdrop-blur-md border border-dashed border-[#1A2406]/5 rounded-[32px] p-24 text-center"
+            >
+              <div className="w-16 h-16 bg-white rounded-2xl p-5 shadow-sm mx-auto mb-6 flex items-center justify-center border border-white">
+                <ShieldAlert className="w-7 h-7 text-[#1A2406]/10" />
+              </div>
+              <h3 className="font-jakarta text-2xl font-bold text-[#1A2406] mb-3 tracking-[-0.04em]">Pure Ledger State</h3>
+              <p className="text-[#1A2406]/30 max-w-xs mx-auto text-sm leading-relaxed mb-8 font-medium italic">
+                No active disputes detected in this sector.
+              </p>
+            </motion.div>
           ) : (
-            raisedTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} mode="raised" />)
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {(activeTab === "raised" ? raisedTickets : receivedTickets).map((ticket) => (
+                <TicketCard key={ticket.id} ticket={ticket} mode={activeTab} />
+              ))}
+            </div>
           )}
-        </TabsContent>
+        </motion.div>
+      </AnimatePresence>
 
-        <TabsContent value="received" className="space-y-4">
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />Loading received tickets...</div>
-          ) : receivedTickets.length === 0 ? (
-            <Card><CardContent className="flex items-center justify-center gap-2 py-10 text-gray-500"><AlertTriangle className="h-4 w-4" />No tickets against you.</CardContent></Card>
-          ) : (
-            receivedTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} mode="received" />)
+      {/* ── Detailed Audit Modal ── */}
+      <Dialog open={isAuditOpen} onOpenChange={setIsAuditOpen}>
+        <DialogContent className="max-w-xl bg-white border border-black/5 rounded-2xl shadow-2xl p-0 overflow-hidden">
+          {selectedTicket && (
+            <div className="flex flex-col">
+              <div className="bg-[#1A2406] p-6 text-white">
+                <div className="flex items-center justify-between mb-2">
+                  <Badge className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase border-none ${getStatusStyle(selectedTicket.status)}`}>
+                    {selectedTicket.status}
+                  </Badge>
+                  <span className="text-[10px] font-mono text-white/30 uppercase tracking-[0.2em]">Audit Report</span>
+                </div>
+                <DialogTitle className="text-xl font-jakarta font-bold tracking-tight">{selectedTicket.title}</DialogTitle>
+                <DialogDescription className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-1">
+                  Reference #{selectedTicket.id.slice(-12).toUpperCase()}
+                </DialogDescription>
+              </div>
+
+              <div className="p-8 space-y-8">
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Case Narration</h4>
+                  <p className="text-sm text-[#1A2406]/80 leading-relaxed font-serif italic border-l-2 border-[#D9F24F] pl-4 py-1">
+                    "{selectedTicket.description}"
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8 py-6 border-y border-black/[0.03]">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-[0.15em]">Petitioner</p>
+                    <p className="text-xs font-bold text-[#1A2406]">{selectedTicket.raisedBy.name}</p>
+                    <p className="text-[10px] text-[#1A2406]/40">{selectedTicket.raisedBy.email}</p>
+                  </div>
+                  <div className="space-y-1 text-right">
+                    <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-[0.15em]">Defendant</p>
+                    <p className="text-xs font-bold text-[#1A2406]">{selectedTicket.againstUser.name}</p>
+                    <p className="text-[10px] text-[#1A2406]/40">{selectedTicket.againstUser.email}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-[0.15em]">Breach Type</p>
+                    <p className="text-xs font-bold text-[#1A2406]">{selectedTicket.reason.replace('_', ' ')}</p>
+                  </div>
+                  <div className="space-y-1 text-right">
+                    <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-[0.15em]">Filing Date</p>
+                    <p className="text-xs font-bold text-[#1A2406]">{new Date(selectedTicket.createdAt).toLocaleDateString(undefined, { dateStyle: 'long' })}</p>
+                  </div>
+                </div>
+
+                {selectedTicket.agreement && (
+                  <div className="bg-[#1A2406]/[0.02] border border-black/[0.03] rounded-xl p-4 flex items-center justify-between group cursor-pointer hover:bg-black/[0.04] transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-black/[0.05] flex items-center justify-center text-[#1A2406]">
+                        <Gavel className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-widest leading-none mb-1">Agreement Link</p>
+                        <p className="text-xs font-bold text-[#1A2406]">{selectedTicket.agreement.title}</p>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-[#1A2406]/20 group-hover:text-[#1A2406] transition-colors" />
+                  </div>
+                )}
+
+                {selectedTicket.evidenceUrl && (
+                  <div className="space-y-2 pt-2">
+                    <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-widest">Digital Evidence</p>
+                    <a 
+                      href={selectedTicket.evidenceUrl} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1.5"
+                    >
+                      Audit Proof.pdf <ArrowUpRight className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+
+                <div className="pt-4">
+                  <Button 
+                    variant="outline" 
+                    className="w-full h-11 rounded-xl text-[10px] font-bold uppercase tracking-widest border-black/[0.08]" 
+                    onClick={() => setIsAuditOpen(false)}
+                  >
+                    Close Report
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
-        </TabsContent>
-      </Tabs>
-    </div>
+        </DialogContent>
+      </Dialog>
+    </motion.div>
   );
 }
