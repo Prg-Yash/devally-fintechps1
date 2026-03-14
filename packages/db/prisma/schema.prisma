@@ -22,8 +22,11 @@ model User {
   accounts         Account[]
   twoFactorEnabled Boolean?    @default(false)
   twofactors       TwoFactor[]
+  purchases        Purchase[]
+  passkeys         Passkey[]
 
-  passkeys Passkey[]
+  createdAgreements  Agreement[] @relation("Creator")
+  receivedAgreements Agreement[] @relation("Receiver")
 
   @@map("user")
 }
@@ -106,4 +109,58 @@ model Passkey {
   @@index([userId])
   @@index([credentialID])
   @@map("passkey")
+}
+
+model Purchase {
+  id                String   @id @default(cuid())
+  userId            String
+  amount            Float
+  razorpayOrderId   String   @unique
+  razorpayPaymentId String?  @unique
+  status            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("purchase")
+}
+
+model Agreement {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  amount        Float
+  status        String   @default("PENDING")
+  currency      String   @default("USDC")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  creatorId String
+  creator   User   @relation("Creator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  receiverId String
+  receiver   User   @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  milestones Milestone[]
+
+  @@index([creatorId])
+  @@index([receiverId])
+  @@map("agreement")
+}
+
+model Milestone {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  amount        Float
+  status        String   @default("PENDING")
+  dueDate       DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  agreementId String
+  agreement   Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@map("milestone")
 }
