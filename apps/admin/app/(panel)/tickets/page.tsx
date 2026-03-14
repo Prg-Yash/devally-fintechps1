@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { formatDate } from "@/app/lib/admin-api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5000";
@@ -109,7 +109,7 @@ export default function TicketsPage() {
     <section className="admin-page">
       <header className="admin-page-header">
         <h2>Dispute Tickets</h2>
-        <p>Monitor all disputes and review ticket context quickly. Click any title to open full info.</p>
+        <p>Open any ticket title to view the full details on its dedicated page.</p>
       </header>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -157,63 +157,67 @@ export default function TicketsPage() {
               tickets.map((ticket) => (
                 <tr key={ticket.id}>
                   <td>
-                    <button
-                      type="button"
-                      className="border-0 bg-transparent p-0 font-semibold text-[#1d4c35] hover:underline"
-                    >
-                      <Link href={`/tickets/${ticket.id}`}>{ticket.title}</Link>
-                    </button>
+                    <Link href={`/tickets/${ticket.id}`} className="font-semibold text-[#1d4c35] hover:underline">
+                      {ticket.title}
+                    </Link>
                   </td>
                   <td>
                     <select
                       value={draftStatusByTicket[ticket.id] ?? ticket.status}
                       onChange={(event) =>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
-                      <p className="text-[10px] font-bold uppercase text-[#526157] mb-2">Related Tickets ({agreementDetails.tickets.length})</p>
-                      {agreementDetails.tickets.length === 0 ? (
-                        <p className="text-xs text-[#526157]">No other tickets are linked to this agreement.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {agreementDetails.tickets.map((agreementTicket) => (
-                            <div key={agreementTicket.id} className="rounded-md border border-[#ece6d9] bg-[#fcfbf8] p-2">
-                              <p className="text-xs font-semibold text-[#122016]">{agreementTicket.title}</p>
-                              <p className="text-[11px] text-[#526157]">
-                                {agreementTicket.status} | {agreementTicket.severity} | {formatDate(agreementTicket.createdAt)}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold">{selectedTicket.agreement.title}</p>
-                      <p className="text-[10px] text-[#526157] font-mono">{selectedTicket.agreement.id}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="px-2 py-1 rounded border border-[#d9d0bf] bg-white text-[10px] font-bold uppercase">
-                        {selectedTicket.agreement.status}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
+                        setDraftStatusByTicket((prev) => ({
+                          ...prev,
+                          [ticket.id]: event.target.value,
+                        }))
+                      }
+                      className="rounded-md border border-[#d9d0bf] bg-white px-2 py-1 text-xs"
+                    >
+                      {STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={draftSeverityByTicket[ticket.id] ?? ticket.severity}
+                      onChange={(event) =>
+                        setDraftSeverityByTicket((prev) => ({
+                          ...prev,
+                          [ticket.id]: event.target.value,
+                        }))
+                      }
+                      className="rounded-md border border-[#d9d0bf] bg-white px-2 py-1 text-xs"
+                    >
+                      {SEVERITY_OPTIONS.map((severity) => (
+                        <option key={severity} value={severity}>
+                          {severity}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>{ticket.reason}</td>
+                  <td>{ticket.raisedBy.email}</td>
+                  <td>{ticket.againstUser.email}</td>
+                  <td>{ticket.agreement ? ticket.agreement.title : "-"}</td>
+                  <td>{formatDate(ticket.createdAt)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateTicket(ticket.id)}
+                      disabled={editingTicketId === ticket.id}
+                      className="rounded-md border border-[#1f6a42] bg-[#1f6a42] px-3 py-1 text-xs font-semibold text-white disabled:opacity-70"
+                    >
+                      {editingTicketId === ticket.id ? "Saving..." : "Save"}
+                    </button>
+                  </td>
+                </tr>
+              ))
             )}
-
-            <div className="rounded-xl border border-[#d9d0bf] bg-white p-4 text-[#122016]">
-               <h4 className="text-xs font-bold uppercase text-[#526157] mb-2">Internal Note / Metadata</h4>
-               <p className="text-xs text-[#526157] italic">Automated dispute record for agreement conflict resolution.</p>
-            </div>
-          </div>
-        ) : null}
-      </AdminInfoModal>
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

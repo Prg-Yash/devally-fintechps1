@@ -5,6 +5,7 @@ import {
   deleteUserByAdmin,
   getAdminAgreements,
   getAdminAnalytics,
+  getAdminPurchaseById,
   getAdminPurchases,
   getAdminTicketById,
   getAdminTickets,
@@ -26,5 +27,6 @@ router.get('/tickets', getAdminTickets);
 router.get('/tickets/:ticketId', getAdminTicketById);
 router.patch('/tickets/:ticketId', updateAdminTicket);
 router.get('/purchases', getAdminPurchases);
+router.get('/purchases/:purchaseId', getAdminPurchaseById);
 
 export default router;

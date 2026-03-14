@@ -518,3 +518,29 @@ export const getAdminPurchases = async (req: Request, res: Response) => {
     return res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 };
+
+export const getAdminPurchaseById = async (req: Request, res: Response) => {
+  try {
+    const purchaseId = Array.isArray(req.params.purchaseId) ? req.params.purchaseId[0] : req.params.purchaseId;
+
+    if (!purchaseId) {
+      return res.status(400).json({ error: 'purchaseId is required' });
+    }
+
+    const purchase = await prisma.purchase.findUnique({
+      where: { id: purchaseId },
+      include: {
+        user: { select: { id: true, name: true, email: true, createdAt: true } },
+      },
+    });
+
+    if (!purchase) {
+      return res.status(404).json({ error: 'Purchase not found' });
+    }
+
+    return res.json({ purchase });
+  } catch (error: any) {
+    console.error('Error fetching admin purchase details:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
