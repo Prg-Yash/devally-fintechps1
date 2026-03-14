@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Plus_Jakarta_Sans, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
+import { AppThirdwebProvider } from "@/components/providers/thirdweb-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,7 +39,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${jakarta.variable} antialiased`}
       >
-        {children}
+        <AppThirdwebProvider>{children}</AppThirdwebProvider>
         <Toaster position="top-center" richColors />
       </body>
     </html>

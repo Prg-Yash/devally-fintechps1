@@ -9,7 +9,12 @@ dotenv.config();
 const app = express();
 
 // Global Middleware
-app.use(cors({ origin: 'http://localhost:3000' }));
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-thirdweb-signature']
+  // credentials: true -> Cannot use credentials: true when origin is '*'
+}));
 
 // Global JSON parsing generally goes here, but we excluded it because Webhooks need raw strings.
 // To add regular JSON parsing for other routes without breaking webhooks, you can do:

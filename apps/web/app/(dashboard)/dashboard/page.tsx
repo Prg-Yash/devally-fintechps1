@@ -6,11 +6,15 @@ import { CheckCircle2, Coins, FileText, Loader2, LogOut, Plus } from "lucide-rea
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { ConnectButton, useActiveAccount } from "thirdweb/react";
+import { sepolia } from "thirdweb/chains";
 
 import { authClient } from "@/lib/auth-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { thirdwebClient } from "@/lib/thirdweb-client";
+import { ESCROW_CONTRACT_ADDRESS, getProjectsForClient, formatPusdAmount, shortAddress, type OnchainProject } from "@/lib/escrow";
 
 interface Purchase {
   id: string;
@@ -100,11 +104,14 @@ const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destr
 export default function DashboardPage() {
   const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
+  const account = useActiveAccount();
 
   const [connectedWalletId, setConnectedWalletId] = useState<string>("w1");
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
   const [wallets, setWallets] = useState<DemoWallet[]>([]);
+  const [fundedProjects, setFundedProjects] = useState<OnchainProject[]>([]);
+  const [isLoadingFundedProjects, setIsLoadingFundedProjects] = useState(false);
 
   const fullName = session?.user?.name ?? "User";
   const userEmail = session?.user?.email ?? "";
@@ -139,6 +146,27 @@ export default function DashboardPage() {
 
     fetchPurchases();
   }, [session?.user?.id]);
+
+  useEffect(() => {
+    const fetchFundedProjects = async () => {
+      if (!account?.address) {
+        setFundedProjects([]);
+        return;
+      }
+
+      try {
+        setIsLoadingFundedProjects(true);
+        const projects = await getProjectsForClient(thirdwebClient, account.address, 6);
+        setFundedProjects(projects);
+      } catch (error) {
+        console.error("Failed to load funded projects:", error);
+      } finally {
+        setIsLoadingFundedProjects(false);
+      }
+    };
+
+    fetchFundedProjects();
+  }, [account?.address]);
 
   const handleLogout = async () => {
     try {
@@ -238,6 +266,54 @@ export default function DashboardPage() {
                   <p className="text-xs font-medium text-gray-500">Pending Transactions</p>
                   <p className="mt-1 text-2xl font-bold text-[#CA8A04]">{pendingPurchases.length}</p>
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      <motion.div variants={itemVariants}>
+        <Card className="border-green-200 bg-green-50/60">
+          <CardHeader>
+            <CardTitle className="text-green-900">PayCrow On-chain Escrow Projects</CardTitle>
+            <CardDescription>
+              Wallet connected via smart account. Funded project cards are read directly from the escrow mapping.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <ConnectButton
+              client={thirdwebClient}
+              chain={sepolia}
+              accountAbstraction={{ chain: sepolia, sponsorGas: true }}
+              connectButton={{ label: "Connect Smart Wallet" }}
+            />
+
+            {isLoadingFundedProjects ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading escrow projects...
+              </div>
+            ) : fundedProjects.length === 0 ? (
+              <p className="text-sm text-gray-500">No funded projects found for the connected smart account.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {fundedProjects.map((project) => (
+                  <Card key={project.projectId.toString()} className="border-green-100 bg-white">
+                    <CardContent className="space-y-2 py-5">
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-gray-900">Project #{project.projectId.toString()}</p>
+                        <Badge variant={project.isFunded ? "default" : "secondary"}>
+                          {project.isFunded ? "Funded" : "Pending"}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-gray-700">
+                        Escrowed Amount: {formatPusdAmount(project.amount)} PUSD
+                      </p>
+                      <p className="text-xs text-gray-500">Freelancer: {project.freelancer}</p>
+                      <p className="text-xs text-gray-500">Vault: {ESCROW_CONTRACT_ADDRESS}</p>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             )}
           </CardContent>
