@@ -11,6 +11,7 @@ interface TicketRow {
   title: string;
   reason: string;
   status: string;
+  severity: string;
   evidenceUrl?: string | null;
   createdAt: string;
   raisedBy: { id: string; name: string; email: string };
@@ -24,12 +25,17 @@ interface TicketsResponse {
 }
 
 const summarizeError = (error: unknown) => (error instanceof Error ? error.message : "Unexpected error");
+const STATUS_OPTIONS = ["OPEN", "IN_REVIEW", "RESOLVED", "CLOSED", "REJECTED"] as const;
+const SEVERITY_OPTIONS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
+  const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
+  const [draftStatusByTicket, setDraftStatusByTicket] = useState<Record<string, string>>({});
+  const [draftSeverityByTicket, setDraftSeverityByTicket] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const loadTickets = async () => {
@@ -45,6 +51,18 @@ export default function TicketsPage() {
         }
 
         setTickets(payload.tickets);
+        setDraftStatusByTicket(
+          payload.tickets.reduce<Record<string, string>>((acc, ticket) => {
+            acc[ticket.id] = ticket.status;
+            return acc;
+          }, {}),
+        );
+        setDraftSeverityByTicket(
+          payload.tickets.reduce<Record<string, string>>((acc, ticket) => {
+            acc[ticket.id] = ticket.severity;
+            return acc;
+          }, {}),
+        );
       } catch (fetchError: unknown) {
         setError(summarizeError(fetchError));
       } finally {
@@ -54,6 +72,37 @@ export default function TicketsPage() {
 
     loadTickets();
   }, []);
+
+  const handleUpdateTicket = async (ticketId: string) => {
+    const status = draftStatusByTicket[ticketId];
+    const severity = draftSeverityByTicket[ticketId];
+
+    try {
+      setEditingTicketId(ticketId);
+      setError(null);
+
+      const response = await fetch(`${API_BASE_URL}/admin/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status, severity }),
+      });
+
+      const payload = (await response.json()) as { error?: string; ticket?: TicketRow };
+
+      if (!response.ok || !payload.ticket) {
+        throw new Error(payload.error || "Failed to update ticket");
+      }
+
+      setTickets((prev) => prev.map((ticket) => (ticket.id === ticketId ? payload.ticket! : ticket)));
+      setSelectedTicket((prev) => (prev?.id === ticketId ? payload.ticket! : prev));
+    } catch (updateError: unknown) {
+      setError(summarizeError(updateError));
+    } finally {
+      setEditingTicketId(null);
+    }
+  };
 
   const openCount = useMemo(() => tickets.filter((ticket) => ticket.status === "OPEN").length, [tickets]);
   const inReviewCount = useMemo(() => tickets.filter((ticket) => ticket.status === "IN_REVIEW").length, [tickets]);
@@ -88,21 +137,23 @@ export default function TicketsPage() {
             <tr>
               <th>Title</th>
               <th>Status</th>
+              <th>Severity</th>
               <th>Reason</th>
               <th>Raised By</th>
               <th>Against</th>
               <th>Agreement</th>
               <th>Created</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={7}>Loading tickets...</td>
+                <td colSpan={9}>Loading tickets...</td>
               </tr>
             ) : tickets.length === 0 ? (
               <tr>
-                <td colSpan={7}>No tickets found.</td>
+                <td colSpan={9}>No tickets found.</td>
               </tr>
             ) : (
               tickets.map((ticket) => (
@@ -116,12 +167,57 @@ export default function TicketsPage() {
                       {ticket.title}
                     </button>
                   </td>
-                  <td>{ticket.status}</td>
+                  <td>
+                    <select
+                      value={draftStatusByTicket[ticket.id] ?? ticket.status}
+                      onChange={(event) =>
+                        setDraftStatusByTicket((prev) => ({
+                          ...prev,
+                          [ticket.id]: event.target.value,
+                        }))
+                      }
+                      className="rounded-md border border-[#d9d0bf] bg-white px-2 py-1 text-xs"
+                    >
+                      {STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={draftSeverityByTicket[ticket.id] ?? ticket.severity}
+                      onChange={(event) =>
+                        setDraftSeverityByTicket((prev) => ({
+                          ...prev,
+                          [ticket.id]: event.target.value,
+                        }))
+                      }
+                      className="rounded-md border border-[#d9d0bf] bg-white px-2 py-1 text-xs"
+                    >
+                      {SEVERITY_OPTIONS.map((severity) => (
+                        <option key={severity} value={severity}>
+                          {severity}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td>{ticket.reason}</td>
                   <td>{ticket.raisedBy.email}</td>
                   <td>{ticket.againstUser.email}</td>
                   <td>{ticket.agreement ? ticket.agreement.title : "-"}</td>
                   <td>{formatDate(ticket.createdAt)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateTicket(ticket.id)}
+                      disabled={editingTicketId === ticket.id}
+                      className="rounded-md border border-[#1f6a42] bg-[#1f6a42] px-3 py-1 text-xs font-semibold text-white disabled:opacity-70"
+                    >
+                      {editingTicketId === ticket.id ? "Saving..." : "Save"}
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
@@ -149,6 +245,16 @@ export default function TicketsPage() {
                       'bg-[#dff4e6] text-[#1f6a42]'
                     }`}>
                       {selectedTicket.status}
+                    </span>
+                  </p>
+                  <p><strong>Severity:</strong> 
+                    <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      selectedTicket.severity === 'CRITICAL' ? 'bg-[#fde2e2] text-[#8f1f2f]' :
+                      selectedTicket.severity === 'HIGH' ? 'bg-[#fde8c8] text-[#7b4c00]' :
+                      selectedTicket.severity === 'MEDIUM' ? 'bg-[#ebf4f9] text-[#1f6a8f]' :
+                      'bg-[#dff4e6] text-[#1f6a42]'
+                    }`}>
+                      {selectedTicket.severity}
                     </span>
                   </p>
                   <p><strong>Reason Category:</strong> <span className="text-[#8f1f2f] font-medium">{selectedTicket.reason}</span></p>

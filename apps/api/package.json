@@ -25,12 +25,14 @@
     "pg": "^8.20.0",
     "razorpay": "^2.9.5",
     "streamsearch": "^1.1.0",
-    "viem": "^2.38.2"
+    "viem": "^2.38.2",
+    "yn": "^3.1.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
     "@types/node": "^22.19.15",
+    "@types/pg": "^8.18.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
