@@ -48,15 +48,37 @@ const LoginForm = () => {
       { ...data, callbackURL: "/" },
       {
         onError: (error) => {
+          if (error?.error?.code === "ACCOUNT_BANNED") {
+            toast.error("Your account is banned. Please contact admin support.")
+            window.location.href = "/banned"
+            setIsSubmitting(false)
+            return
+          }
           toast.error(error.error.message || "Login failed")
           console.error("Login error:", error)
           setErrorCode(error.error.code)
           setIsSubmitting(false)
         },
-        onSuccess: () => {
-          toast.success("Login successful! Welcome back.")
-          setIsSubmitting(false)
-          // router.push("/")
+        onSuccess: async () => {
+          try {
+            const statusRes = await fetch("/api/user/access-status", { cache: "no-store" })
+            const statusData = await statusRes.json()
+
+            if (statusRes.ok && statusData?.isBanned) {
+              await authClient.signOut()
+              toast.error("Your account is banned. Please contact admin support.")
+              window.location.href = "/banned"
+              return
+            }
+
+            toast.success("Login successful! Welcome back.")
+            router.push("/dashboard")
+          } catch (error) {
+            console.error("Failed to verify account status after login:", error)
+            toast.error("Login succeeded, but status check failed. Please try again.")
+          } finally {
+            setIsSubmitting(false)
+          }
         }
       }
     )
@@ -208,4 +230,4 @@ const LoginForm = () => {
 }
 
 export default LoginForm
-
+
