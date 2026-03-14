@@ -74,6 +74,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5
 interface MilestoneInput {
   title: string;
   amount: string;
+  dueDate: string;
 }
 
 export default function NewAgreementPage() {
@@ -98,7 +99,7 @@ export default function NewAgreementPage() {
   });
 
   const [milestones, setMilestones] = useState<MilestoneInput[]>([
-    { title: "Initial Draft", amount: "" }
+    { title: "Initial Draft", amount: "", dueDate: "" }
   ]);
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
@@ -112,7 +113,7 @@ export default function NewAgreementPage() {
     smartAccountAddress !== adminAccount?.address;
 
   const addMilestone = () => {
-    setMilestones([...milestones, { title: "", amount: "" }]);
+    setMilestones([...milestones, { title: "", amount: "", dueDate: "" }]);
   };
 
   const removeMilestone = (index: number) => {
@@ -144,6 +145,7 @@ export default function NewAgreementPage() {
           milestones: milestones.map(m => ({
             title: m.title,
             amount: parseFloat(m.amount) || 0,
+            dueDate: m.dueDate ? new Date(m.dueDate) : null,
             status: "PENDING"
           }))
         }),
@@ -443,7 +445,7 @@ export default function NewAgreementPage() {
                         {index + 1}
                       </div>
                     </div>
-                    <div className="md:col-span-7 space-y-2">
+                    <div className="md:col-span-4 space-y-2">
                         <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">Milestone Title</Label>
                         <Input 
                         placeholder="Deliverable Name" 
@@ -463,6 +465,18 @@ export default function NewAgreementPage() {
                             className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none font-bold placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all pr-8"
                         />
                         <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[#1A2406]/20">PUSD</span>
+                        </div>
+                    </div>
+                    <div className="md:col-span-3 space-y-2">
+                        <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">Due Date</Label>
+                        <div className="relative">
+                          <Calendar className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
+                          <Input 
+                              type="date" 
+                              value={milestone.dueDate} 
+                              onChange={(e) => updateMilestone(index, "dueDate", e.target.value)}
+                              className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none text-sm placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all pr-8"
+                          />
                         </div>
                     </div>
                     <div className="md:col-span-1 flex justify-center">
