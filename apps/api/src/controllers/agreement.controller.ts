@@ -3,13 +3,14 @@ import prisma from '../config/prisma';
 
 export const createAgreement = async (req: Request, res: Response) => {
   try {
-    const { 
-      title, 
-      description, 
-      amount, 
-      currency, 
-      receiverEmail, 
-      creatorId, 
+    const {
+      title,
+      description,
+      amount,
+      currency,
+      status,
+      receiverEmail,
+      creatorId,
       milestones,
       projectId,
       receiverAddress,
@@ -32,12 +33,12 @@ export const createAgreement = async (req: Request, res: Response) => {
 
     // Normalize email: trim and convert to lowercase
     const normalizedEmail = receiverEmail.trim().toLowerCase();
-    
+
     console.log(`Looking for user with email: "${normalizedEmail}" (original: "${receiverEmail}")`);
 
     // Find the receiver by email (case-insensitive)
     const receiver = await prisma.user.findFirst({
-      where: { 
+      where: {
         email: {
           equals: normalizedEmail,
           mode: 'insensitive'
@@ -52,8 +53,8 @@ export const createAgreement = async (req: Request, res: Response) => {
         select: { id: true, email: true, name: true }
       });
       console.log('Available users:', allUsers);
-      
-      return res.status(404).json({ 
+
+      return res.status(404).json({
         error: `User not found with email: ${normalizedEmail}`,
         inputEmail: receiverEmail,
         normalizedEmail: normalizedEmail
@@ -62,33 +63,80 @@ export const createAgreement = async (req: Request, res: Response) => {
 
     console.log(`Found user: ${receiver.id} with email: ${receiver.email}`);
 
-    // Create agreement with milestones (title and amount are optional)
-    const agreement = await prisma.agreement.create({
-      data: {
-        title: title || 'Untitled Agreement',
-        description,
-        amount: amount || 0,
-        currency: currency || 'USDC',
-        creatorId,
-        receiverId: receiver.id,
-        projectId: projectId ? Number(projectId) : null,
-        receiverAddress: receiverAddress || req.body.freelancerAddress,
-        transactionHash,
-        milestones: {
-          create: milestones?.map((milestone: any) => ({
-            title: milestone.title,
-            description: milestone.description,
-            amount: milestone.amount,
-            dueDate: milestone.dueDate ? new Date(milestone.dueDate) : null,
-          })) || [],
+    const normalizedProjectId = projectId !== undefined && projectId !== null
+      ? Number(projectId)
+      : null;
+
+    let agreement;
+
+    // Idempotent by projectId: update existing row if this on-chain project already exists.
+    if (normalizedProjectId !== null && !Number.isNaN(normalizedProjectId)) {
+      const existing = await prisma.agreement.findUnique({
+        where: { projectId: normalizedProjectId },
+      });
+
+      if (existing) {
+        agreement = await prisma.agreement.update({
+          where: { id: existing.id },
+          data: {
+            title: title || existing.title || 'Untitled Agreement',
+            description,
+            amount: amount || 0,
+            currency: currency || existing.currency || 'USDC',
+            status: status || existing.status || 'PENDING',
+            creatorId,
+            receiverId: receiver.id,
+            projectId: normalizedProjectId,
+            receiverAddress: receiverAddress || req.body.freelancerAddress,
+            transactionHash,
+            milestones: {
+              deleteMany: {},
+              create: milestones?.map((milestone: any) => ({
+                title: milestone.title,
+                description: milestone.description,
+                amount: milestone.amount,
+                dueDate: milestone.dueDate ? new Date(milestone.dueDate) : null,
+              })) || [],
+            },
+          },
+          include: {
+            creator: { select: { name: true, email: true } },
+            receiver: { select: { name: true, email: true } },
+            milestones: true,
+          },
+        });
+      }
+    }
+
+    if (!agreement) {
+      agreement = await prisma.agreement.create({
+        data: {
+          title: title || 'Untitled Agreement',
+          description,
+          amount: amount || 0,
+          currency: currency || 'USDC',
+          status: status || 'PENDING',
+          creatorId,
+          receiverId: receiver.id,
+          projectId: normalizedProjectId,
+          receiverAddress: receiverAddress || req.body.freelancerAddress,
+          transactionHash,
+          milestones: {
+            create: milestones?.map((milestone: any) => ({
+              title: milestone.title,
+              description: milestone.description,
+              amount: milestone.amount,
+              dueDate: milestone.dueDate ? new Date(milestone.dueDate) : null,
+            })) || [],
+          },
         },
-      },
-      include: {
-        creator: { select: { name: true, email: true } },
-        receiver: { select: { name: true, email: true } },
-        milestones: true,
-      },
-    });
+        include: {
+          creator: { select: { name: true, email: true } },
+          receiver: { select: { name: true, email: true } },
+          milestones: true,
+        },
+      });
+    }
 
     res.status(201).json({
       message: 'Agreement created successfully',
