@@ -15,6 +15,7 @@ Individual fetchers (also importable for testing):
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 from typing import Optional
@@ -48,6 +49,7 @@ def fetch_content(url: str, url_type: str, milestone_spec: str = "") -> str:
     """
     Route the URL to the correct fetcher based on url_type.
     Always returns a string — never raises.
+    For image/figma vision results, returns '__VISION__' prefix + base64 data.
     """
     url_type = (url_type or "").strip().lower()
 
@@ -56,6 +58,7 @@ def fetch_content(url: str, url_type: str, milestone_spec: str = "") -> str:
         "figma":   fetch_figma,
         "website": fetch_website,
         "pdf":     extract_pdf,
+        "image":   fetch_image,
     }
 
     fetcher = fetcher_map.get(url_type)
@@ -290,6 +293,8 @@ def fetch_figma(url: str) -> str:
         return "[figma] Access denied — check that your FIGMA_TOKEN has read access to this file."
     if r.status_code == 404:
         return "[figma] Figma file not found. Check the URL and sharing permissions."
+    if r.status_code == 429:
+        return "[figma] Rate limit exceeded by Figma API. Please wait a minute before trying again."
     if r.status_code != 200:
         return f"[figma] Unexpected status {r.status_code}: {r.text[:300]}"
 
@@ -308,8 +313,70 @@ def fetch_figma(url: str) -> str:
     _walk_figma_node(doc, lines, depth=0)
 
     combined = "\n".join(lines)
-    print(f"  [figma] Done — {len(combined)} chars.")
+
+    # --- Try to export frame images for vision analysis ---
+    image_b64_list = _figma_export_images(file_key, doc, token)
+    if image_b64_list:
+        # Return vision marker + base64 images separated by |||, followed by text structure
+        images_payload = "|||".join(image_b64_list)
+        print(f"  [figma] Done — {len(image_b64_list)} frame images + {len(combined)} chars of structure.")
+        return f"__VISION__{images_payload}__ENDVISION__{combined[:FIGMA_CAP]}"
+
+    print(f"  [figma] Done (text-only) — {len(combined)} chars.")
     return combined[:FIGMA_CAP]
+
+
+def _figma_export_images(file_key: str, doc: dict, token: str, max_frames: int = 5) -> list[str]:
+    """
+    Export top-level frames from a Figma file as PNG images (base64).
+    Uses the Figma Images API: GET /v1/images/:file_key?ids=...
+    Returns a list of base64-encoded PNG strings, or empty list on failure.
+    """
+    # Collect frame node IDs from the top-level canvases
+    frame_ids: list[str] = []
+    for canvas in doc.get("children", []):
+        for child in canvas.get("children", []):
+            if child.get("type") in ("FRAME", "COMPONENT"):
+                frame_ids.append(child["id"])
+                if len(frame_ids) >= max_frames:
+                    break
+        if len(frame_ids) >= max_frames:
+            break
+
+    if not frame_ids:
+        print("  [figma] No top-level frames found for image export.")
+        return []
+
+    ids_param = ",".join(frame_ids)
+    try:
+        r = httpx.get(
+            f"https://api.figma.com/v1/images/{file_key}?ids={ids_param}&format=png&scale=1",
+            headers={"X-Figma-Token": token},
+            timeout=httpx.Timeout(30.0),
+        )
+        if r.status_code != 200:
+            print(f"  [figma] Image export API returned {r.status_code}")
+            return []
+    except httpx.RequestError as exc:
+        print(f"  [figma] Image export network error: {exc}")
+        return []
+
+    image_urls = r.json().get("images", {})
+    results: list[str] = []
+
+    for node_id, img_url in image_urls.items():
+        if not img_url:
+            continue
+        try:
+            img_r = httpx.get(img_url, timeout=httpx.Timeout(15.0))
+            if img_r.status_code == 200:
+                b64 = base64.b64encode(img_r.content).decode("ascii")
+                results.append(b64)
+                print(f"  [figma] Exported frame {node_id} — {len(img_r.content)} bytes")
+        except Exception:  # noqa: BLE001
+            print(f"  [figma] Failed to download image for frame {node_id}")
+
+    return results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -460,3 +527,41 @@ def extract_pdf(url: str) -> str:
     combined = "\n\n".join(pages)
     print(f"  [pdf] Done — {total_chars} chars from {len(pages)} pages.")
     return combined[:PDF_CAP]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6.5  Image fetcher (direct image URLs — jpg, png, webp)
+# ─────────────────────────────────────────────────────────────────────────────
+
+IMAGE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB max per image
+
+
+def fetch_image(url: str) -> str:
+    """
+    Download an image from a direct URL and return as base64 with __VISION__ prefix.
+    Supports jpg, png, webp.
+    """
+    print(f"  [image] Fetching: {url}")
+
+    if not url.startswith(("http://", "https://")):
+        return f"[image] Unsupported URL scheme: {url}"
+
+    try:
+        r = httpx.get(
+            url,
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; VerifierBot/1.0)"},
+        )
+    except httpx.RequestError as exc:
+        return f"[image] Network error: {exc}"
+
+    if r.status_code != 200:
+        return f"[image] HTTP {r.status_code} — could not download image."
+
+    if len(r.content) > IMAGE_MAX_BYTES:
+        return f"[image] Image too large ({len(r.content)} bytes, max {IMAGE_MAX_BYTES})."
+
+    b64 = base64.b64encode(r.content).decode("ascii")
+    print(f"  [image] Done — {len(r.content)} bytes downloaded, base64 encoded.")
+    return f"__VISION__{b64}__ENDVISION__Image from {url}"

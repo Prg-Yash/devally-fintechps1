@@ -2,10 +2,10 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 
-# LangGraph + LangChain + Groq
+# LangGraph + LangChain + Featherless (OpenAI-compatible)
 langgraph>=0.1.0
 langchain>=0.2.0
-langchain-groq>=0.1.0
+langchain-openai>=0.1.0
 
 # HTTP client (fetchers)
 httpx>=0.27.0

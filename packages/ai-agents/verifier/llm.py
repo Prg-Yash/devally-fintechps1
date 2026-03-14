@@ -1,5 +1,11 @@
 """
-llm.py — Groq LLM client and robust JSON parsing for the Verifier Agent.
+llm.py — Featherless.ai LLM client and robust JSON parsing for the Verifier Agent.
+
+Dual-Model Architecture:
+    TEXT  model: Qwen/Qwen3-32B          — for code analysis, scoring, and scout
+    VISION model: Qwen/Qwen3-VL-30B-A3B-Instruct  — for Figma / visual design analysis
+
+Both are accessed via Featherless.ai's OpenAI-compatible API.
 
 Public API:
     run_analysis(milestone_spec, fetched_content, findings) -> dict
@@ -7,6 +13,9 @@ Public API:
 
     run_scoring(milestone_spec, findings, per_criterion) -> dict
         Calls SCORE_PROMPT, returns parsed final verdict dict.
+
+    run_scout(milestone_spec, file_list) -> list[str]
+        Calls SCOUT_PROMPT, returns list of relevant file paths.
 
 Both functions ALWAYS return a valid dict — never raise.
 On any failure they return a zero-score safe fallback.
@@ -23,56 +32,86 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from prompts import ANALYSE_PROMPT, SCORE_PROMPT, SCOUT_PROMPT
+from prompts import ANALYSE_PROMPT, SCORE_PROMPT, SCOUT_PROMPT, VISION_ANALYSE_PROMPT
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Groq client (singleton — temperature=0 for deterministic scoring)
+# Featherless.ai configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _make_client() -> ChatGroq:
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
+FEATHERLESS_BASE_URL = os.getenv(
+    "FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1"
+)
+
+# Model IDs
+TEXT_MODEL   = "Qwen/Qwen3-32B"
+VISION_MODEL = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Client factories (singleton per model — temperature=0 for determinism)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_client(model: str) -> ChatOpenAI:
+    api_key = os.getenv("FEATHERLESS_API_KEY", "").strip()
     if not api_key:
         raise EnvironmentError(
-            "GROQ_API_KEY is not set. Add it to your .env file and restart."
+            "FEATHERLESS_API_KEY is not set. Add it to your .env file and restart."
         )
-    return ChatGroq(
-        model="llama-3.1-8b-instant",
+    return ChatOpenAI(
+        model=model,
         temperature=0,
         api_key=api_key,
+        base_url=FEATHERLESS_BASE_URL,
     )
 
 
-# Lazy singleton — avoids crashing at import time if key isn't set yet
-_client: ChatGroq | None = None
+# Lazy singletons — avoids crashing at import time if key isn't set yet
+_text_client: ChatOpenAI | None = None
+_vision_client: ChatOpenAI | None = None
 
 
-def _get_client() -> ChatGroq:
-    global _client
-    if _client is None:
-        _client = _make_client()
-    return _client
+def _get_text_client() -> ChatOpenAI:
+    global _text_client
+    if _text_client is None:
+        _text_client = _make_client(TEXT_MODEL)
+    return _text_client
+
+
+def _get_vision_client() -> ChatOpenAI:
+    global _vision_client
+    if _vision_client is None:
+        _vision_client = _make_client(VISION_MODEL)
+    return _vision_client
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Raw LLM call
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _call_llm(system_prompt: str, user_message: str) -> str:
+def _call_llm(system_prompt: str, user_message: str, *, use_vision: bool = False) -> str:
     """
-    Send a system + user message to Groq and return the raw text response.
+    Send a system + user message to Featherless and return the raw text response.
     Raises on network / API errors (callers handle this).
+
+    Args:
+        system_prompt: The system-level instruction prompt.
+        user_message:  The user-level message.
+        use_vision:    If True, use Gemma 3 (vision model). Otherwise use Qwen (text model).
     """
-    client = _get_client()
+    client = _get_vision_client() if use_vision else _get_text_client()
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_message),
     ]
     response = client.invoke(messages)
-    return response.content or ""
+    raw = response.content or ""
+    # Qwen3 sometimes wraps output in <think>...</think> tags — strip them
+    raw = re.sub(r"<think>[\s\S]*?</think>", "", raw).strip()
+    return raw
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -219,7 +258,7 @@ def run_analysis(
         findings=findings_str,
     )
 
-    print("  [llm/analyse] Calling Groq …")
+    print(f"  [llm/analyse] Calling Featherless ({TEXT_MODEL}) …")
 
     # We need a closure for the retry that sends the stricter instruction
     # as a follow-up user message in the same logical conversation.
@@ -291,7 +330,7 @@ def run_scoring(
         per_criterion=per_crit_str,
     )
 
-    print("  [llm/score] Calling Groq …")
+    print(f"  [llm/score] Calling Featherless ({TEXT_MODEL}) …")
 
     try:
         raw_response = _call_llm(
@@ -346,7 +385,7 @@ def run_scout(milestone_spec: str, file_list: list[str]) -> list[str]:
         file_list=file_list_str,
     )
 
-    print(f"  [llm/scout] Calling Groq to select files out of {len(file_list)} …")
+    print(f"  [llm/scout] Calling Featherless ({TEXT_MODEL}) to select files out of {len(file_list)} …")
 
     try:
         raw_response = _call_llm(
@@ -379,5 +418,110 @@ def run_scout(milestone_spec: str, file_list: list[str]) -> list[str]:
     if isinstance(result, list):
         print(f"  [llm/scout] Selected {len(result)} files.")
         return [str(x) for x in result]
-    
+
     return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vision analysis call (Qwen3-VL — for images / Figma screenshots)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _call_vision_llm(system_prompt: str, user_text: str, image_b64_list: list[str]) -> str:
+    """
+    Send text + images to Qwen3-VL (vision model) via Featherless.
+    Images are passed as base64-encoded data URIs.
+    """
+    client = _get_vision_client()
+
+    # Build multimodal content: text + images
+    content_parts = []
+    for img_b64 in image_b64_list:
+        # Auto-detect mime type from base64 header or default to png
+        if img_b64.startswith("/9j/"):
+            mime = "image/jpeg"
+        elif img_b64.startswith("UklGR"):
+            mime = "image/webp"
+        else:
+            mime = "image/png"
+        content_parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{img_b64}"},
+        })
+    content_parts.append({"type": "text", "text": user_text})
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=content_parts),
+    ]
+    response = client.invoke(messages)
+    return response.content or ""
+
+
+def run_vision_analysis(
+    milestone_spec: str,
+    image_b64_list: list[str],
+    findings: list[str],
+) -> dict:
+    """
+    Run visual analysis on one or more images using Qwen3-VL (vision model).
+
+    Args:
+        milestone_spec: What the client expects.
+        image_b64_list: List of base64-encoded image strings.
+        findings:       Previous findings from prior passes.
+
+    Returns a parsed dict with keys:
+        completeness, correctness, quality, evidence,
+        confidence, met, missing, reasoning
+
+    Never raises — returns _analysis_fallback on any error.
+    """
+    findings_str = "\n".join(findings) if findings else "(none — first pass)"
+
+    filled_prompt = VISION_ANALYSE_PROMPT.format(
+        milestone_spec=milestone_spec,
+        findings=findings_str,
+    )
+
+    print(f"  [llm/vision] Calling Featherless ({VISION_MODEL}) with {len(image_b64_list)} image(s) …")
+
+    try:
+        raw_response = _call_vision_llm(
+            system_prompt=filled_prompt,
+            user_text="Analyze the provided images against the milestone specification. Produce the JSON analysis now.",
+            image_b64_list=image_b64_list,
+        )
+    except Exception as exc:  # noqa: BLE001
+        reason = f"Vision LLM call failed: {exc}"
+        print(f"  [llm/vision] {reason}")
+        return _analysis_fallback(reason)
+
+    def _retry_vision(stricter_msg: str) -> str:
+        return _call_vision_llm(
+            system_prompt=filled_prompt,
+            user_text=stricter_msg,
+            image_b64_list=image_b64_list,
+        )
+
+    result = parse_json_safe(raw_response, context="vision", retry_fn=_retry_vision)
+
+    if result is None:
+        reason = "Both JSON parse attempts failed on vision analysis."
+        print(f"  [llm/vision] {reason}")
+        return _analysis_fallback(reason)
+
+    # Clamp values
+    result["completeness"] = max(0, min(25, int(result.get("completeness", 0))))
+    result["correctness"]  = max(0, min(30, int(result.get("correctness",  0))))
+    result["quality"]      = max(0, min(25, int(result.get("quality",      0))))
+    result["evidence"]     = max(0, min(20, int(result.get("evidence",     0))))
+    result["confidence"]   = max(0, min(100, int(result.get("confidence",  0))))
+    result.setdefault("met",       [])
+    result.setdefault("missing",   [])
+    result.setdefault("reasoning", "")
+
+    print(
+        f"  [llm/vision] Done — confidence={result['confidence']}  "
+        f"total={result['completeness'] + result['correctness'] + result['quality'] + result['evidence']}/100"
+    )
+    return result

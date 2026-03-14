@@ -2,7 +2,7 @@
 nodes.py — LangGraph node implementations for the Deliverable Verification Agent.
 
 Nodes:
-    detect_node   — Classifies the URL type (LLM + regex fallback)
+    detect_node   — Classifies the URL type (deterministic regex)
     fetch_node    — Fetches deliverable content with the right source fetcher
     analyse_node  — Runs LLM analysis against milestone spec
     score_node    — Produces the final client-facing verdict
@@ -13,50 +13,26 @@ Routing:
 
 from __future__ import annotations
 
-import os
 import re
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_groq import ChatGroq
-
 from fetchers import fetch_content
-from llm import run_analysis, run_scoring
+from llm import run_analysis, run_scoring, run_vision_analysis
 from state import VerifierState
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Shared Groq client for URL classification (lightweight, temperature=0)
+# URL type helpers (100% deterministic — no LLM needed for URL classification)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_classifier() -> ChatGroq:
-    return ChatGroq(
-        model="llama-3.3-70b-versatile",
-        temperature=0,
-        api_key=os.getenv("GROQ_API_KEY", ""),
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# URL type helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-_VALID_TYPES = {"github", "figma", "website", "pdf", "other"}
-
-_CLASSIFY_SYSTEM = (
-    "You are a URL classifier for a deliverable verification system. "
-    "Given a URL, output exactly ONE word from this list: github, figma, website, pdf, other. "
-    "No punctuation. No explanation. Just one word."
-)
-
-
-def _classify_url_regex(url: str) -> str:
+def _classify_url(url: str) -> str:
     """
-    Deterministic regex fallback — used when LLM output is unexpected.
-    Always returns one of the valid type strings.
+    Deterministic URL classifier using regex patterns.
+    Always returns one of: github, figma, website, pdf, image, other.
+    No LLM call needed — URL patterns are unambiguous.
     """
     u = url.lower().strip()
     if re.search(r"github\.com/[^/]+/[^/]", u):
@@ -65,31 +41,11 @@ def _classify_url_regex(url: str) -> str:
         return "figma"
     if u.endswith(".pdf") or "?format=pdf" in u:
         return "pdf"
+    if re.search(r"\.(jpg|jpeg|png|webp|gif|bmp|svg)(\?|$)", u):
+        return "image"
     if u.startswith("http://") or u.startswith("https://"):
         return "website"
     return "other"
-
-
-def _classify_url(url: str) -> str:
-    """
-    Classify a URL using the LLM, falling back to regex if LLM output is invalid.
-    """
-    try:
-        client = _get_classifier()
-        response = client.invoke([
-            SystemMessage(content=_CLASSIFY_SYSTEM),
-            HumanMessage(content=f"URL: {url}"),
-        ])
-        raw = (response.content or "").strip().lower()
-        # Post-process: take first word, strip punctuation
-        word = re.split(r"\W+", raw)[0]
-        if word in _VALID_TYPES:
-            return word
-        print(f"  [detect] LLM returned unexpected type '{raw}' — falling back to regex.")
-    except Exception as exc:  # noqa: BLE001
-        print(f"  [detect] LLM classification failed: {exc} — using regex fallback.")
-
-    return _classify_url_regex(url)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -168,7 +124,8 @@ def analyse_node(state: VerifierState) -> dict:
 
     Behaviour:
       - If fetched_content is empty → skip LLM, set confidence=0, zero scores.
-      - Otherwise → call run_analysis(), accumulate findings.
+      - If content has __VISION__ prefix → extract images and use Gemma 3 vision model.
+      - Otherwise → call run_analysis() with Qwen text model.
     """
     print("\n[NODE] analyse_node")
 
@@ -184,7 +141,28 @@ def analyse_node(state: VerifierState) -> dict:
             "confidence":    0,
         }
 
-    result = run_analysis(spec, fetched, findings)
+    # Check if content contains vision data (images)
+    if fetched.startswith("__VISION__"):
+        print("  [analyse] Vision content detected — routing to Qwen3-VL vision model.")
+        # Parse: __VISION__<b64_1>|||<b64_2>__ENDVISION__<text_content>
+        vision_end = fetched.find("__ENDVISION__")
+        if vision_end != -1:
+            vision_data = fetched[len("__VISION__"):vision_end]
+            text_content = fetched[vision_end + len("__ENDVISION__"):]
+            image_b64_list = [img for img in vision_data.split("|||") if img.strip()]
+        else:
+            image_b64_list = [fetched[len("__VISION__"):]]
+            text_content = ""
+
+        # Run vision analysis with Qwen3-VL
+        result = run_vision_analysis(spec, image_b64_list, findings)
+
+        # If there's also text content (e.g. Figma structure), mention it in findings
+        if text_content.strip():
+            findings.append(f"[Text structure also available: {len(text_content)} chars]")
+    else:
+        # Standard text analysis with Qwen
+        result = run_analysis(spec, fetched, findings)
 
     # Accumulate findings across loop passes
     new_findings = findings + [
@@ -224,13 +202,15 @@ def should_loop(state: VerifierState) -> str:
     Conditional routing after analyse_node.
 
     Returns:
-        "fetch_more"  if confidence < 60 AND fetch_attempts < 2
+        "fetch_more"  if confidence < 60 AND fetch_attempts < 2 AND type == github
         "finalise"    otherwise
     """
     confidence    = state.get("confidence", 0)
     fetch_attempts = state.get("fetch_attempts", 0)
+    url_type      = state.get("url_type", "")
 
-    if confidence < 60 and fetch_attempts < 2:
+    # Only github supports agentic file scouting. Re-fetching Figma/PDF/Website is redundant and hits rate limits.
+    if confidence < 60 and fetch_attempts < 2 and url_type == "github":
         print(
             f"\n[ROUTER] confidence={confidence} < 60 and attempts={fetch_attempts} < 2 "
             f"→ fetch_more (loop)"

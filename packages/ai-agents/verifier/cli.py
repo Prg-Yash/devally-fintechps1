@@ -17,7 +17,7 @@ from __future__ import annotations
 import sys
 from dotenv import load_dotenv
 
-load_dotenv()  # must happen before any langchain/groq imports
+load_dotenv()  # must happen before any langchain imports
 
 # ── Rich console setup ────────────────────────────────────────────────────────
 try:
@@ -56,14 +56,14 @@ def _banner() -> None:
         console.print(
             Panel.fit(
                 "[bold cyan]Deliverable Verification Agent[/bold cyan]\n"
-                "[dim]Powered by LangGraph + Groq (llama-3.1-70b-versatile)[/dim]",
+                "[dim]Powered by LangGraph + Featherless.ai (Qwen3-32B / Qwen3-VL)[/dim]",
                 border_style="cyan",
             )
         )
     else:
         print("=" * 60)
-        print("  Deliverable Verification Agent")
-        print("  Powered by LangGraph + Groq")
+        print("  Delivered Verification Agent")
+        print("  Powered by LangGraph + Featherless.ai")
         print("=" * 60)
 
 

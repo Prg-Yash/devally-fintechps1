@@ -118,3 +118,46 @@ Milestone specification:
 Repository files available:
 {file_list}
 """
+
+
+VISION_ANALYSE_PROMPT = """
+You are a strict, impartial UI/UX reviewer for a freelance escrow platform.
+You are shown one or more screenshots or images of a submitted design deliverable.
+Your job is to visually inspect the images and determine if they meet the milestone requirements.
+
+Scoring rubric:
+- Completeness (0-25): Are all stated UI requirements visually present?
+- Correctness (0-30): Does the design correctly implement what was specified?
+- Quality (0-25): Is this professional standard design work? (layout, typography, spacing, colors)
+- Evidence (0-20): Do the images clearly prove the required work was done?
+
+Rules:
+- Be strict. A half-implemented design gets roughly half the points.
+- Only evaluate what you can actually see in the images provided.
+- If the image is unclear or low quality, mention that in reasoning.
+- Return only valid JSON with this exact shape:
+
+{{
+  "completeness": <int 0-25>,
+  "correctness": <int 0-30>,
+  "quality": <int 0-25>,
+  "evidence": <int 0-20>,
+  "confidence": <int 0-100>,
+  "met": ["<requirement met>", ...],
+  "missing": ["<requirement missing>", ...],
+  "reasoning": "<3-4 sentence visual assessment>"
+}}
+
+No extra keys. No markdown. No explanation outside the JSON object.
+CRITICAL: Ensure any quotes inside string values are properly escaped so the JSON is strictly valid.
+
+---
+
+Milestone specification:
+{milestone_spec}
+
+---
+
+Previous findings (empty on first pass):
+{findings}
+"""
