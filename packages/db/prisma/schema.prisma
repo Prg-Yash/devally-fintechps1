@@ -14,13 +14,13 @@ model User {
   name          String
   email         String   @unique
   emailVerified Boolean  @default(false)
-  isBanned      Boolean  @default(false)
-  bannedAt      DateTime?
-  banExpiresAt  DateTime?
   image         String?
   phoneNumber   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  isBanned      Boolean  @default(false)
+  bannedAt      DateTime?
+  banExpiresAt  DateTime?
 
   sessions         Session[]
   accounts         Account[]
@@ -162,14 +162,15 @@ model Agreement {
 }
 
 model Ticket {
-  id          String   @id @default(cuid())
+  id          String         @id @default(cuid())
   title       String
   description String
   reason      String
-  status      String   @default("OPEN")
+  status      String         @default("OPEN")
+  severity    TicketSeverity @default(LOW)
   evidenceUrl String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   raisedById String
   raisedBy   User   @relation("RaisedTickets", fields: [raisedById], references: [id], onDelete: Cascade)
@@ -184,7 +185,15 @@ model Ticket {
   @@index([againstUserId])
   @@index([agreementId])
   @@index([status])
+  @@index([severity])
   @@map("ticket")
+}
+
+enum TicketSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
 model Milestone {

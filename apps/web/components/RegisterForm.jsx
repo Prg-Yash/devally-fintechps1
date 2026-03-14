@@ -46,8 +46,12 @@ const RegisterForm = () => {
     await authClient.signUp.email(
       { ...data, callbackURL: "/" },
       {
-        onError: (error) => {
-          toast.error(error.error.message || "Registration failed")
+        onError: (ctx) => {
+          console.error("Registration failed:", ctx)
+          if (ctx.error) {
+            console.error("Reg error details:", { code: ctx.error.code, message: ctx.error.message })
+          }
+          toast.error(ctx.error?.message || "Registration failed")
           setIsSubmitting(false)
         },
         onSuccess: () => {
