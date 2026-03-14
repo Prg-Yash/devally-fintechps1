@@ -250,7 +250,7 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-3">
           <motion.div whileHover={HOVER_SCALE} whileTap={BUTTON_PRESS}>
-            <Link href="/buy-crypto">
+            <Link href="/buy-pcc">
               <button className="rounded-xl border border-black/[0.04] bg-white text-[#1A2406] px-5 py-2.5 text-xs font-bold tracking-tight hover:bg-[#FAFAF9] transition-all flex items-center gap-2 shadow-sm">
                 <Coins className="w-4 h-4" />
                 Buy Node Capital
@@ -330,13 +330,13 @@ export default function DashboardPage() {
                 <div className="space-y-3">
                   {fundedProjects.map((project) => (
                     <div key={project.projectId.toString()} className="p-4 rounded-2xl bg-[#1A2406]/[0.02] border border-[#1A2406]/5 group hover:border-[#D9F24F]/30 transition-all">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-[10px] font-bold text-[#1A2406] tracking-tight">Project #{project.projectId.toString()}</p>
-                          <Badge className="bg-[#D9F24F]/10 text-[#1A2406] border-none text-[8px] font-bold">
-                            {formatPusdAmount(project.amount)} PUSD
-                          </Badge>
-                        </div>
-                        <p className="text-[9px] font-mono text-[#1A2406]/30 truncate">{shortAddress(project.freelancer)}</p>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-[10px] font-bold text-[#1A2406] tracking-tight">Project #{project.projectId.toString()}</p>
+                        <Badge className="bg-[#D9F24F]/10 text-[#1A2406] border-none text-[8px] font-bold">
+                          {formatPusdAmount(project.amount)} PUSD
+                        </Badge>
+                      </div>
+                      <p className="text-[9px] font-mono text-[#1A2406]/30 truncate">{shortAddress(project.freelancer)}</p>
                     </div>
                   ))}
                 </div>
@@ -509,7 +509,7 @@ export default function DashboardPage() {
             <p className="text-gray-400 max-w-xs mx-auto text-sm leading-relaxed mb-10 font-medium">
               Initialize a node purchase to deploy capital into the escrow protocol.
             </p>
-            <Link href="/buy-crypto">
+            <Link href="/buy-pcc">
               <motion.button
                 whileHover={HOVER_SCALE}
                 whileTap={BUTTON_PRESS}
