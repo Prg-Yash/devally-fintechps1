@@ -53,32 +53,51 @@ export default function AgreementsPage() {
 
   // Fetch agreements
   const fetchAgreements = async () => {
+    if (!session?.user?.id) {
+      console.log('Session not ready, skipping fetch');
+      return;
+    }
+    
     try {
       setIsLoading(true);
+      console.log(`Fetching agreements for user: ${session.user.id}`);
+      
       const [incomingRes, outgoingRes] = await Promise.all([
-        fetch("http://localhost:5000/agreements/incoming"),
-        fetch("http://localhost:5000/agreements/outgoing"),
+        fetch(`http://localhost:5000/agreements/incoming?userId=${session.user.id}`),
+        fetch(`http://localhost:5000/agreements/outgoing?userId=${session.user.id}`),
       ]);
+
+      console.log(`Incoming response status: ${incomingRes.status}`);
+      console.log(`Outgoing response status: ${outgoingRes.status}`);
 
       if (incomingRes.ok) {
         const data = await incomingRes.json();
         setIncomingAgreements(data.agreements || []);
+      } else {
+        const error = await incomingRes.json();
+        console.error('Error fetching incoming:', error);
       }
+
       if (outgoingRes.ok) {
         const data = await outgoingRes.json();
         setOutgoingAgreements(data.agreements || []);
+      } else {
+        const error = await outgoingRes.json();
+        console.error('Error fetching outgoing:', error);
       }
     } catch (error) {
       console.error("Error fetching agreements:", error);
-      toast.error("Failed to fetch agreements");
+      toast.error("Failed to fetch agreements - make sure the API server is running on http://localhost:5000");
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAgreements();
-  }, []);
+    if (session?.user?.id) {
+      fetchAgreements();
+    }
+  }, [session?.user?.id]);
 
   const handleCreateAgreement = async () => {
     if (!session?.user?.id) {
