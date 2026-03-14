@@ -137,8 +137,8 @@ export default function AgreementsPage() {
     try {
       setIsLoading(true);
       const [incomingRes, outgoingRes] = await Promise.all([
-        fetch(`http://localhost:5000/agreements/incoming?userId=${session.user.id}`),
-        fetch(`http://localhost:5000/agreements/outgoing?userId=${session.user.id}`),
+        fetch(`${API_BASE_URL}/agreements/incoming?userId=${session.user.id}`),
+        fetch(`${API_BASE_URL}/agreements/outgoing?userId=${session.user.id}`),
       ]);
       if (incomingRes.ok) {
         const data = await incomingRes.json();
@@ -150,7 +150,7 @@ export default function AgreementsPage() {
       }
     } catch (error) {
       console.error("Error fetching agreements:", error);
-      toast.error("Failed to fetch agreements");
+      toast.error(`Failed to fetch agreements - make sure the API server is running on ${API_BASE_URL}`);
     } finally {
       setIsLoading(false);
     }
@@ -787,17 +787,17 @@ export default function AgreementsPage() {
                       <div
                         key={step}
                         className={`rounded-lg px-3 py-2.5 text-xs font-medium transition-all duration-300 flex items-center gap-2 ${isActive
-                            ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200"
-                            : isPast
-                              ? "bg-emerald-50 text-emerald-600"
-                              : "bg-white text-slate-400 border border-slate-100"
+                          ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200"
+                          : isPast
+                            ? "bg-emerald-50 text-emerald-600"
+                            : "bg-white text-slate-400 border border-slate-100"
                           }`}
                       >
                         <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${isActive
-                            ? "bg-indigo-600 text-white"
-                            : isPast
-                              ? "bg-emerald-500 text-white"
-                              : "bg-slate-200 text-slate-500"
+                          ? "bg-indigo-600 text-white"
+                          : isPast
+                            ? "bg-emerald-500 text-white"
+                            : "bg-slate-200 text-slate-500"
                           }`}>
                           {isPast ? "✓" : i + 1}
                         </span>

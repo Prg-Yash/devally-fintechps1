@@ -20,6 +20,8 @@ interface Purchase {
   razorpayOrderId: string;
 }
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+
 export default function BuyCryptoPage() {
   const [amount, setAmount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,7 +39,7 @@ export default function BuyCryptoPage() {
   const fetchPurchases = async (userId: string) => {
     try {
       setIsLoadingPurchases(true);
-      const response = await fetch(`http://localhost:5000/razorpay/purchases?userId=${userId}`);
+      const response = await fetch(`${API_BASE_URL}/razorpay/purchases?userId=${userId}`);
       if (response.ok) {
         const data = await response.json();
         setPurchases(data.purchases || []);
@@ -64,7 +66,7 @@ export default function BuyCryptoPage() {
 
     try {
       // 1. Create a dynamic Razorpay order on our Express API server
-      const response = await fetch("http://localhost:5000/razorpay/create-order", {
+      const response = await fetch(`${API_BASE_URL}/razorpay/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount, userId: session.user.id }),
@@ -89,7 +91,7 @@ export default function BuyCryptoPage() {
           
           try {
             // 3. Synchronously verify the payment with our backend
-            const verifyRes = await fetch("http://localhost:5000/razorpay/verify", {
+            const verifyRes = await fetch(`${API_BASE_URL}/razorpay/verify`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -198,7 +200,7 @@ export default function BuyCryptoPage() {
                   className="pl-10 text-lg h-14"
                   min="1"
                   value={amount || ""}
-                  onChange={(e) => setAmount(Number(e.target.value))}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(Number(e.target.value))}
                 />
               </div>
             </div>
@@ -245,7 +247,7 @@ export default function BuyCryptoPage() {
                         <p className="text-sm text-gray-500">Order ID: {purchase.razorpayOrderId.slice(0, 15)}...</p>
                         <p className="text-sm text-gray-400">{new Date(purchase.createdAt).toLocaleString()}</p>
                       </div>
-                      <Badge className={getStatusColor(purchase.status)}>
+                      <Badge variant="outline" className={getStatusColor(purchase.status)}>
                         {purchase.status}
                       </Badge>
                     </div>
