@@ -1,8 +1,14 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { convertToModelMessages, streamText, UIMessage } from 'ai';
 import { z } from 'zod';
-import { getProjectsForClient } from '@/lib/escrow';
+import { getProjectsForClient, PUSD_CONTRACT_ADDRESS } from '@/lib/escrow';
 import { thirdwebClient } from '@/lib/thirdweb-client';
+import {
+  getPccBalance,
+  formatPccBaseUnits,
+  INR_TO_PCC_RATE,
+  PCC_CONTRACT_ADDRESS,
+} from '@/lib/paycrow-coin';
 
 export const maxDuration = 30;
 
@@ -49,6 +55,8 @@ export async function POST(req: Request) {
         If the user asks if they are connected, or asks to connect their wallet, VERY IMPORTANT: use the get_wallet_status tool.
         If the user asks to release funds or pay a milestone, use the prepare_release tool.
         If the user asks to create or draft a new agreement, use the draft_agreement tool.
+        If the user asks about PCC balance, token balance, coin balance, or "how much PCC do I have", use the get_pcc_balance tool.
+        If the user asks to buy PCC, purchase PCC, add balance, or convert INR to PCC, use the prepare_buy_pcc tool.
       `,
       tools: {
         get_wallet_status: {
@@ -117,6 +125,96 @@ export async function POST(req: Request) {
               action: 'RENDER_UI_BUTTON',
               component: 'DraftAgreementButton',
               props: { project_idea: args.project_idea },
+            };
+          },
+        },
+
+        get_pcc_balance: {
+          description: "Get the connected wallet's current PCC token balance.",
+          inputSchema: z.object({}),
+          execute: async () => {
+            if (!walletAddress) {
+              return {
+                success: false,
+                status: 'disconnected',
+                message: 'Connect wallet to view PCC balance.',
+                action: 'RENDER_UI_BUTTON',
+                component: 'ConnectWalletButton',
+                props: {},
+              };
+            }
+
+            try {
+              const rawBalance = await getPccBalance(
+                thirdwebClient,
+                walletAddress,
+                PCC_CONTRACT_ADDRESS,
+              );
+              const formattedBalance = formatPccBaseUnits(rawBalance);
+
+              let alternateBalancePusd: string | null = null;
+              let hint: string | null = null;
+
+              // Helpful debug signal when users have balance in a different token contract.
+              if (PCC_CONTRACT_ADDRESS.toLowerCase() !== PUSD_CONTRACT_ADDRESS.toLowerCase()) {
+                try {
+                  const pusdRawBalance = await getPccBalance(
+                    thirdwebClient,
+                    walletAddress,
+                    PUSD_CONTRACT_ADDRESS,
+                  );
+                  alternateBalancePusd = formatPccBaseUnits(pusdRawBalance);
+
+                  if (rawBalance === BigInt(0) && pusdRawBalance > BigInt(0)) {
+                    hint = `No balance found in configured PCC contract, but ${alternateBalancePusd} tokens exist in PUSD contract.`;
+                  }
+                } catch {
+                  // Ignore alternate-contract read failures.
+                }
+              }
+
+              return {
+                success: true,
+                walletAddress,
+                symbol: 'PCC',
+                contract_address: PCC_CONTRACT_ADDRESS,
+                balance_base_units: rawBalance.toString(),
+                balance_pcc: formattedBalance,
+                alternate_balance_pusd: alternateBalancePusd,
+                hint,
+              };
+            } catch (err: unknown) {
+              return {
+                success: false,
+                error: (err as Error).message,
+              };
+            }
+          },
+        },
+
+        prepare_buy_pcc: {
+          description: 'Prepare UI action to navigate user to Buy PCC page. Use when user wants to buy PCC.',
+          inputSchema: z.object({
+            amount_inr: z
+              .preprocess(
+                (value) => (value === null ? undefined : value),
+                z.number().nonnegative().optional(),
+              )
+              .describe('Optional INR amount user wants to convert to PCC.'),
+          }),
+          execute: async (args: { amount_inr?: number }) => {
+            const amountInr = typeof args.amount_inr === 'number' ? args.amount_inr : null;
+            const estimatedPcc = amountInr != null ? amountInr * INR_TO_PCC_RATE : null;
+
+            return {
+              action: 'RENDER_UI_BUTTON',
+              component: 'BuyPccButton',
+              props: {
+                route: '/buy-pcc',
+                amount_inr: amountInr,
+                conversion_rate: INR_TO_PCC_RATE,
+                estimated_pcc: estimatedPcc,
+              },
             };
           },
         },

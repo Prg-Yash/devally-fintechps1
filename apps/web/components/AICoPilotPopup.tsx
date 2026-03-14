@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   useActiveAccount,
+  useActiveWallet,
+  useAdminWallet,
   TransactionButton,
   ConnectButton,
 } from "thirdweb/react";
@@ -90,6 +92,9 @@ const loadingLabelForTool = (toolName: string, input?: Record<string, any>) => {
   if (toolName === "get_wallet_status") return "Checking wallet status...";
   if (toolName === "list_agreements")
     return "Fetching agreements from blockchain...";
+  if (toolName === "get_pcc_balance") return "Fetching your PCC balance...";
+  if (toolName === "prepare_buy_pcc")
+    return `Preparing PCC purchase${typeof input?.amount_inr === "number" ? ` for ₹${input.amount_inr}` : ""}...`;
   if (toolName === "prepare_release")
     return `Preparing release for Project #${input?.projectId ?? "..."}...`;
   if (toolName === "draft_agreement")
@@ -101,8 +106,14 @@ export const AICoPilotPopup = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const account = useActiveAccount();
+  const activeWallet = useActiveWallet();
+  const adminWallet = useAdminWallet();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  const adminAccount =
+    activeWallet?.getAdminAccount?.() || adminWallet?.getAccount?.();
+  const payoutWalletAddress = adminAccount?.address || account?.address || null;
 
   // Keep transport stable across renders to avoid dropped streams.
   const transport = React.useMemo(
@@ -137,7 +148,7 @@ export const AICoPilotPopup = () => {
       { text },
       {
         body: {
-          walletAddress: account?.address || null,
+          walletAddress: payoutWalletAddress,
         },
       },
     );
@@ -156,7 +167,7 @@ export const AICoPilotPopup = () => {
       { text },
       {
         body: {
-          walletAddress: account?.address || null,
+          walletAddress: payoutWalletAddress,
         },
       },
     );
@@ -184,8 +195,8 @@ export const AICoPilotPopup = () => {
                     Nexus Intelligence
                   </h3>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mt-1">
-                    {account
-                      ? `Connected: ${account.address.slice(0, 6)}...`
+                    {payoutWalletAddress
+                      ? `Connected: ${payoutWalletAddress.slice(0, 6)}...`
                       : "Wallet Not Connected"}
                   </p>
                 </div>
@@ -213,7 +224,7 @@ export const AICoPilotPopup = () => {
                       className="h-7 px-2 text-red-700 hover:text-red-800 hover:bg-red-100"
                       onClick={() =>
                         void regenerate({
-                          body: { walletAddress: account?.address || null },
+                          body: { walletAddress: payoutWalletAddress },
                         })
                       }
                     >
@@ -306,11 +317,48 @@ export const AICoPilotPopup = () => {
                                     "draft_agreement",
                                     "get_wallet_status",
                                     "list_agreements",
+                                    "get_pcc_balance",
+                                    "prepare_buy_pcc",
                                   ].includes(toolName) && (
                                     <div className="text-green-700 font-bold flex items-center gap-1.5">
                                       <span>✓</span> Task Completed
                                     </div>
                                   )}
+
+                                {/* PCC Balance UI Block */}
+                                {hasResult && toolName === "get_pcc_balance" && (
+                                  <div className="mt-1 space-y-2">
+                                    {result?.success === false && result?.action !== "RENDER_UI_BUTTON" && (
+                                      <div className="text-red-700 font-medium">
+                                        {result?.error || result?.message || "Could not fetch PCC balance."}
+                                      </div>
+                                    )}
+
+                                    {result?.success && (
+                                      <div className="p-3 rounded-xl border border-blue-200 bg-white text-[#1A2406]">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40 mb-2">
+                                          PCC Balance
+                                        </p>
+                                        <div className="text-xl font-black leading-none">
+                                          {result?.balance_pcc} PCC
+                                        </div>
+                                        <p className="text-[11px] text-[#1A2406]/60 mt-2">
+                                          Wallet: {result?.walletAddress?.slice?.(0, 6)}...{result?.walletAddress?.slice?.(-4)}
+                                        </p>
+                                        {!!result?.contract_address && (
+                                          <p className="text-[10px] text-[#1A2406]/50 mt-1 break-all">
+                                            Contract: {result.contract_address}
+                                          </p>
+                                        )}
+                                        {!!result?.hint && (
+                                          <p className="text-[11px] text-amber-700 mt-2">
+                                            {result.hint}
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
 
                                 {/* Agreements List UI Block */}
                                 {hasResult &&
@@ -385,6 +433,57 @@ export const AICoPilotPopup = () => {
                                   )}
 
                                 {hasResult &&
+                                  toolName === "get_pcc_balance" &&
+                                  result?.action === "RENDER_UI_BUTTON" && (
+                                    <div className="mt-3 p-4 bg-white border border-[#1A2406]/10 rounded-xl shadow-sm flex flex-col items-center text-center">
+                                      <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/40 mb-2">
+                                        Action Required
+                                      </p>
+                                      <p className="text-xs font-medium text-[#1A2406]/80 mb-4">
+                                        Please connect your wallet to check PCC balance.
+                                      </p>
+                                      <div className="w-full relative nexus-wallet-connect-wrapper">
+                                        <ConnectButton
+                                          client={thirdwebClient}
+                                          connectButton={{
+                                            label: "Connect Wallet Now",
+                                            className:
+                                              "!w-full !bg-[#1A2406] !text-[#D9F24F] !h-10 !rounded-xl !text-xs !font-bold uppercase tracking-widest hover:!scale-[1.02] active:!scale-95 transition-all shadow-lg",
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+
+                                {/* Buy PCC Button */}
+                                {hasResult &&
+                                  toolName === "prepare_buy_pcc" &&
+                                  result?.action === "RENDER_UI_BUTTON" && (
+                                    <div className="mt-3 p-3 bg-white border border-[#1A2406]/10 rounded-xl shadow-sm">
+                                      <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/40 mb-2">
+                                        Action Required
+                                      </p>
+                                      <p className="text-xs font-medium text-[#1A2406]/80 mb-2">
+                                        Open Buy PCC to convert INR to PCC using Razorpay.
+                                      </p>
+                                      {typeof result?.props?.amount_inr === "number" && (
+                                        <p className="text-[11px] text-[#1A2406]/70 mb-3">
+                                          Preview: ₹{result.props.amount_inr} at rate {result?.props?.conversion_rate} ≈ {result?.props?.estimated_pcc} PCC
+                                        </p>
+                                      )}
+                                      <Button
+                                        onClick={() => {
+                                          setIsOpen(false);
+                                          router.push(result?.props?.route || "/buy-pcc");
+                                        }}
+                                        className="w-full h-10 rounded-xl bg-[#D9F24F] text-[#1A2406] font-jakarta font-bold text-xs hover:bg-[#c4db47]"
+                                      >
+                                        Buy PCC Now
+                                      </Button>
+                                    </div>
+                                  )}
+
+                                {hasResult &&
                                   toolName === "get_wallet_status" &&
                                   result?.action === "RENDER_UI_BUTTON" && (
                                     <div className="mt-3 p-4 bg-white border border-[#1A2406]/10 rounded-xl shadow-sm flex flex-col items-center text-center">
@@ -454,7 +553,7 @@ export const AICoPilotPopup = () => {
                                             {
                                               body: {
                                                 walletAddress:
-                                                  account?.address || null,
+                                                  payoutWalletAddress,
                                               },
                                             },
                                           );
@@ -536,6 +635,8 @@ export const AICoPilotPopup = () => {
                     {[
                       "Am I connected?",
                       "Show my agreements",
+                      "Check my PCC balance",
+                      "Buy PCC",
                       "Release milestone",
                       "Draft new agreement",
                     ].map((hint) => (
