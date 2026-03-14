@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../config/prisma';
+import { notifyUser } from '../config/notification-service';
 
 type AgreementInclude = {
   creator: { select: { id: true; name: true; email: true; phoneNumber: true } };
@@ -556,6 +557,27 @@ export const createAgreement = async (req: Request, res: Response) => {
       });
     }
 
+    await Promise.all([
+      notifyUser({
+        userId: agreement.receiverId,
+        title: 'New agreement received',
+        message: `You received agreement "${agreement.title}" from ${agreement.creator?.email || 'a user'}.`,
+        type: 'AGREEMENT',
+        entityType: 'agreement',
+        entityId: agreement.id,
+        emailSubject: 'Devally: New agreement assigned to you',
+      }),
+      notifyUser({
+        userId: agreement.creatorId,
+        title: 'Agreement submitted',
+        message: `Your agreement "${agreement.title}" was created successfully.`,
+        type: 'AGREEMENT',
+        entityType: 'agreement',
+        entityId: agreement.id,
+        emailSubject: 'Devally: Agreement created',
+      }),
+    ]);
+
     return res.status(201).json({
       message: 'Agreement created successfully',
       agreement,
@@ -665,6 +687,17 @@ export const updateAgreementStatus = async (req: Request, res: Response) => {
       where: { id: agreementId },
       data: { status },
       include: agreementInclude,
+    });
+
+    const otherPartyId = agreement.creatorId === userId ? agreement.receiverId : agreement.creatorId;
+    await notifyUser({
+      userId: otherPartyId,
+      title: 'Agreement status updated',
+      message: `Agreement "${updatedAgreement.title}" is now ${updatedAgreement.status}.`,
+      type: 'AGREEMENT',
+      entityType: 'agreement',
+      entityId: updatedAgreement.id,
+      emailSubject: 'Devally: Agreement status changed',
     });
 
     return res.json({

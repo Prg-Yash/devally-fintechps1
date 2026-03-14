@@ -33,7 +33,6 @@ import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from
 import { sepolia } from "thirdweb/chains";
 import { prepareContractCall, sendAndConfirmTransaction } from "thirdweb";
 import { verifyTypedData } from "viem";
-import { format, isAfter, isBefore, parseISO, startOfDay } from "date-fns";
 
 import {
   ESCROW_CONTRACT_ADDRESS,
@@ -77,6 +76,23 @@ const txStepMeta: Record<TxStep, { label: string; color: string }> = {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
 const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_BASE_URL ?? "http://localhost:8000";
+
+const startOfLocalDay = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate());
+
+const parseDateInput = (value: string) => {
+  const [year, month, day] = value.split("-").map((part) => Number(part));
+  if (!year || !month || !day) {
+    return null;
+  }
+  return new Date(year, month - 1, day);
+};
+
+const formatDateInput = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 // ─── AI active-field type ───
 type AiActiveField = "idle" | "title" | "description" | "amount" | "dueDate" | "milestones" | "done";
@@ -172,16 +188,28 @@ export default function NewAgreementPage() {
         return;
       }
 
-      const selected = startOfDay(parseISO(value));
-      const today = startOfDay(new Date());
-      if (isBefore(selected, today)) {
+      const parsedValue = parseDateInput(value);
+      if (!parsedValue) {
+        toast.error("Invalid milestone due date");
+        return;
+      }
+
+      const selected = startOfLocalDay(parsedValue);
+      const today = startOfLocalDay(new Date());
+      if (selected.getTime() < today.getTime()) {
         toast.error("Milestone due date cannot be earlier than today");
         return;
       }
 
       if (formData.dueDate) {
-        const agreementDue = startOfDay(parseISO(formData.dueDate));
-        if (isAfter(selected, agreementDue)) {
+        const parsedAgreementDue = parseDateInput(formData.dueDate);
+        if (!parsedAgreementDue) {
+          toast.error("Invalid target completion date");
+          return;
+        }
+
+        const agreementDue = startOfLocalDay(parsedAgreementDue);
+        if (selected.getTime() > agreementDue.getTime()) {
           toast.error("Milestone due date cannot be later than target completion date");
           return;
         }
@@ -196,8 +224,8 @@ export default function NewAgreementPage() {
     setMilestones(newMilestones);
   };
 
-  const todayDate = useMemo(() => startOfDay(new Date()), []);
-  const todayDateString = useMemo(() => format(todayDate, "yyyy-MM-dd"), [todayDate]);
+  const todayDate = useMemo(() => startOfLocalDay(new Date()), []);
+  const todayDateString = useMemo(() => formatDateInput(todayDate), [todayDate]);
 
   const totalAgreementAmount = useMemo(() => parseFloat(formData.amount) || 0, [formData.amount]);
   const milestonesTotal = useMemo(
@@ -223,15 +251,25 @@ export default function NewAgreementPage() {
 
   const isTimelineValid = useMemo(() => {
     if (formData.dueDate) {
-      const agreementDue = startOfDay(parseISO(formData.dueDate));
-      if (isBefore(agreementDue, todayDate)) {
+      const parsedAgreementDue = parseDateInput(formData.dueDate);
+      if (!parsedAgreementDue) {
+        return false;
+      }
+
+      const agreementDue = startOfLocalDay(parsedAgreementDue);
+      if (agreementDue.getTime() < todayDate.getTime()) {
         return false;
       }
 
       for (const milestone of milestones) {
         if (!milestone.dueDate) continue;
-        const milestoneDate = startOfDay(parseISO(milestone.dueDate));
-        if (isBefore(milestoneDate, todayDate) || isAfter(milestoneDate, agreementDue)) {
+        const parsedMilestoneDate = parseDateInput(milestone.dueDate);
+        if (!parsedMilestoneDate) {
+          return false;
+        }
+
+        const milestoneDate = startOfLocalDay(parsedMilestoneDate);
+        if (milestoneDate.getTime() < todayDate.getTime() || milestoneDate.getTime() > agreementDue.getTime()) {
           return false;
         }
       }
@@ -372,35 +410,75 @@ export default function NewAgreementPage() {
       return;
     }
 
+    const parsedAmount = parseFloat(formData.amount) || 0;
+    const normalizedReceiverEmail = formData.receiverEmail.trim().toLowerCase();
+
+    const normalizedMilestones = milestones.map((m, index) => ({
+      title: m.title.trim(),
+      description: null,
+      amount: parseFloat(m.amount) || 0,
+      dueDate: m.dueDate || null,
+      order: index,
+      status: "PENDING",
+    }));
+
+    if (!normalizedMilestones.length || normalizedMilestones.some((m) => !m.title)) {
+      toast.error("Each milestone must have a title");
+      return;
+    }
+
+    const payload = {
+      title: formData.title.trim(),
+      description: formData.description,
+      amount: parsedAmount,
+      currency: "PUSD",
+      receiverEmail: normalizedReceiverEmail,
+      creatorId: session.user.id,
+      dueDate: formData.dueDate,
+      status: "DRAFT",
+      milestones: normalizedMilestones,
+    };
+
+    const parseApiResponse = async (response: Response) => {
+      const raw = await response.text();
+      let data: any = null;
+      if (raw) {
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          data = { error: raw };
+        }
+      }
+      return { data, raw };
+    };
+
     try {
       setIsFunding(true);
       setTxStep("signing");
       setTxStepDescription("Saving draft agreement and notifying freelancer...");
 
-      const res = await fetch(`${API_BASE_URL}/agreements/drafts`, {
+      let res = await fetch(`${API_BASE_URL}/agreements/drafts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: formData.title,
-          description: formData.description,
-          amount: parseFloat(formData.amount),
-          currency: "PUSD",
-          receiverEmail: formData.receiverEmail,
-          creatorId: session.user.id,
-          dueDate: formData.dueDate,
-          milestones: milestones.map((m, index) => ({
-            title: m.title,
-            amount: parseFloat(m.amount) || 0,
-            dueDate: m.dueDate || null,
-            order: index,
-            status: "PENDING",
-          })),
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const data = await res.json().catch(() => ({}));
+      let { data, raw } = await parseApiResponse(res);
+
+      // Compatibility fallback for older API builds that only expose POST /agreements.
+      if (res.status === 404) {
+        res = await fetch(`${API_BASE_URL}/agreements`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        ({ data, raw } = await parseApiResponse(res));
+      }
+
       if (!res.ok || !data?.agreement?.id) {
-        throw new Error(data?.error || "Failed to create draft agreement");
+        const backendMessage =
+          data?.error || data?.message || (typeof data === "string" ? data : null) || raw || "Failed to create draft agreement";
+        throw new Error(`Failed to create draft agreement (${res.status}): ${backendMessage}`);
       }
 
       setTxStep("verified");
@@ -594,19 +672,27 @@ export default function NewAgreementPage() {
                           return;
                         }
 
-                        const parsedNext = startOfDay(parseISO(nextDueDate));
-                        if (isBefore(parsedNext, todayDate)) {
+                        const parsedDate = parseDateInput(nextDueDate);
+                        if (!parsedDate) {
+                          toast.error("Invalid target completion date");
+                          return;
+                        }
+
+                        const parsedNext = startOfLocalDay(parsedDate);
+                        if (parsedNext.getTime() < todayDate.getTime()) {
                           toast.error("Target completion date cannot be earlier than today");
                           return;
                         }
 
                         const latestMilestoneDate = milestones
                           .filter((milestone) => Boolean(milestone.dueDate))
-                          .map((milestone) => startOfDay(parseISO(milestone.dueDate)))
+                          .map((milestone) => parseDateInput(milestone.dueDate))
+                          .filter((milestoneDate): milestoneDate is Date => Boolean(milestoneDate))
+                          .map((milestoneDate) => startOfLocalDay(milestoneDate))
                           .sort((a, b) => a.getTime() - b.getTime())
                           .at(-1);
 
-                        if (latestMilestoneDate && isBefore(parsedNext, latestMilestoneDate)) {
+                        if (latestMilestoneDate && parsedNext.getTime() < latestMilestoneDate.getTime()) {
                           toast.error("Target completion date cannot be earlier than an existing milestone date");
                           return;
                         }
