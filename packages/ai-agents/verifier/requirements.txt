@@ -1,0 +1,29 @@
+# Web framework (Phase 6 - not needed for CLI but scaffolded now)
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# LangGraph + LangChain + Groq
+langgraph>=0.1.0
+langchain>=0.2.0
+langchain-groq>=0.1.0
+
+# HTTP client (fetchers)
+httpx>=0.27.0
+
+# HTML parsing (website fetcher)
+beautifulsoup4>=4.12.0
+
+# PDF extraction (PDF fetcher)
+pymupdf>=1.24.0
+
+# Env loading
+python-dotenv>=1.0.0
+
+# Type extensions (for TypedDict on older Pythons)
+typing_extensions>=4.9.0
+
+# SSE streaming (Phase 6)
+sse-starlette>=1.8.0
+
+# Rich terminal output (CLI display)
+rich>=13.7.0
