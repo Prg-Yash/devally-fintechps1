@@ -25,6 +25,8 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tabs": "^1.1.13",
     "@repo/db": "*",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.0",
     "@scure/base": "^2.0.0",
     "abitype": "^1.2.3",
     "axios-retry": "^4.5.0",

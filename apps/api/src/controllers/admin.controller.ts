@@ -1,7 +1,13 @@
 import { Request, Response } from 'express';
 import prisma from '../config/prisma';
+import { notifyUser } from '../config/notification-service';
 
 const DEFAULT_LIMIT = 100;
+const ALLOWED_TICKET_STATUSES = ['OPEN', 'IN_REVIEW', 'RESOLVED', 'CLOSED', 'REJECTED'] as const;
+const ALLOWED_TICKET_SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+
+type AdminTicketStatus = (typeof ALLOWED_TICKET_STATUSES)[number];
+type AdminTicketSeverity = (typeof ALLOWED_TICKET_SEVERITIES)[number];
 
 const getLimit = (value: unknown) => {
   const parsed = Number(value);
@@ -304,6 +310,55 @@ export const getAdminAgreements = async (req: Request, res: Response) => {
   }
 };
 
+export const getAdminAgreementById = async (req: Request, res: Response) => {
+  try {
+    const agreementId = Array.isArray(req.params.agreementId) ? req.params.agreementId[0] : req.params.agreementId;
+
+    if (!agreementId) {
+      return res.status(400).json({ error: 'agreementId is required' });
+    }
+
+    const agreement = await prisma.agreement.findUnique({
+      where: { id: agreementId },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        receiver: { select: { id: true, name: true, email: true } },
+        milestones: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            amount: true,
+            status: true,
+            dueDate: true,
+            createdAt: true,
+          },
+        },
+        tickets: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            severity: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!agreement) {
+      return res.status(404).json({ error: 'Agreement not found' });
+    }
+
+    return res.json({ agreement });
+  } catch (error: any) {
+    console.error('Error fetching admin agreement details:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
 export const getAdminTickets = async (req: Request, res: Response) => {
   try {
     const limit = getLimit(req.query.limit);
@@ -321,6 +376,126 @@ export const getAdminTickets = async (req: Request, res: Response) => {
     return res.json({ count: tickets.length, tickets });
   } catch (error: any) {
     console.error('Error fetching admin tickets:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
+export const getAdminTicketById = async (req: Request, res: Response) => {
+  try {
+    const ticketId = Array.isArray(req.params.ticketId) ? req.params.ticketId[0] : req.params.ticketId;
+
+    if (!ticketId) {
+      return res.status(400).json({ error: 'ticketId is required' });
+    }
+
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      include: {
+        raisedBy: { select: { id: true, name: true, email: true } },
+        againstUser: { select: { id: true, name: true, email: true } },
+        agreement: { select: { id: true, title: true, status: true } },
+      },
+    });
+
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    return res.json({ ticket });
+  } catch (error: any) {
+    console.error('Error fetching admin ticket details:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
+export const updateAdminTicket = async (req: Request, res: Response) => {
+  try {
+    const ticketId = Array.isArray(req.params.ticketId) ? req.params.ticketId[0] : req.params.ticketId;
+    const rawStatus = req.body?.status;
+    const rawSeverity = req.body?.severity;
+
+    if (!ticketId) {
+      return res.status(400).json({ error: 'ticketId is required' });
+    }
+
+    if (rawStatus == null && rawSeverity == null) {
+      return res.status(400).json({ error: 'At least one of status or severity is required' });
+    }
+
+    let normalizedStatus: AdminTicketStatus | undefined;
+    let normalizedSeverity: AdminTicketSeverity | undefined;
+
+    if (rawStatus != null) {
+      const candidate = String(rawStatus).toUpperCase() as AdminTicketStatus;
+      if (!ALLOWED_TICKET_STATUSES.includes(candidate)) {
+        return res.status(400).json({
+          error: `Invalid status. Allowed values: ${ALLOWED_TICKET_STATUSES.join(', ')}`,
+        });
+      }
+      normalizedStatus = candidate;
+    }
+
+    if (rawSeverity != null) {
+      const candidate = String(rawSeverity).toUpperCase() as AdminTicketSeverity;
+      if (!ALLOWED_TICKET_SEVERITIES.includes(candidate)) {
+        return res.status(400).json({
+          error: `Invalid severity. Allowed values: ${ALLOWED_TICKET_SEVERITIES.join(', ')}`,
+        });
+      }
+      normalizedSeverity = candidate;
+    }
+
+    const existingTicket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: { id: true, raisedById: true, againstUserId: true },
+    });
+
+    if (!existingTicket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    const updatedTicket = await prisma.ticket.update({
+      where: { id: ticketId },
+      data: {
+        ...(normalizedStatus ? { status: normalizedStatus } : {}),
+        ...(normalizedSeverity ? { severity: normalizedSeverity } : {}),
+      },
+      select: {
+        id: true,
+        title: true,
+        reason: true,
+        status: true,
+        severity: true,
+        evidenceUrl: true,
+        createdAt: true,
+        updatedAt: true,
+        raisedBy: { select: { id: true, name: true, email: true } },
+        againstUser: { select: { id: true, name: true, email: true } },
+        agreement: { select: { id: true, title: true, status: true } },
+      },
+    });
+
+    const notifyTargets = Array.from(new Set([existingTicket.raisedById, existingTicket.againstUserId]));
+    await Promise.all(
+      notifyTargets.map((targetUserId) =>
+        notifyUser({
+          userId: targetUserId,
+          title: 'Ticket updated by admin',
+          message: `Ticket "${updatedTicket.title}" is now ${updatedTicket.status} with ${updatedTicket.severity} severity.`,
+          type: 'TICKET',
+          entityType: 'ticket',
+          entityId: updatedTicket.id,
+          emailSubject: 'Devally: Ticket update from admin',
+        })
+      )
+    );
+
+    return res.json({
+      message: 'Ticket updated successfully',
+      ticket: updatedTicket,
+    });
+  } catch (error: any) {
+    console.error('Error updating admin ticket:', error);
     return res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 };

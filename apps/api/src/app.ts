@@ -6,6 +6,7 @@ import agreementRoutes from './routes/agreement.routes';
 import ticketRoutes from './routes/ticket.routes';
 import adminRoutes from './routes/admin.routes';
 import uploadRoutes from './routes/upload.routes';
+import notificationRoutes from './routes/notification.routes';
 
 dotenv.config();
 
@@ -35,10 +36,15 @@ app.use('/agreements', agreementRoutes);
 app.use('/tickets', ticketRoutes);
 app.use('/admin', adminRoutes);
 app.use('/upload', uploadRoutes);
+app.use('/notifications', notificationRoutes);
 
 // General health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
+});
+
+app.get('/admin/test', (req, res) => {
+  res.json({ message: 'Admin test route works!' });
 });
 
 export default app;

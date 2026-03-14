@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import AdminInfoModal from "@/app/components/admin-info-modal";
+import Link from "next/link";
 import { formatDate } from "@/app/lib/admin-api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5000";
@@ -11,6 +11,7 @@ interface TicketRow {
   title: string;
   reason: string;
   status: string;
+  severity: string;
   evidenceUrl?: string | null;
   createdAt: string;
   raisedBy: { id: string; name: string; email: string };
@@ -24,12 +25,16 @@ interface TicketsResponse {
 }
 
 const summarizeError = (error: unknown) => (error instanceof Error ? error.message : "Unexpected error");
+const STATUS_OPTIONS = ["OPEN", "IN_REVIEW", "RESOLVED", "CLOSED", "REJECTED"] as const;
+const SEVERITY_OPTIONS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
+  const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
+  const [draftStatusByTicket, setDraftStatusByTicket] = useState<Record<string, string>>({});
+  const [draftSeverityByTicket, setDraftSeverityByTicket] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const loadTickets = async () => {
@@ -45,6 +50,18 @@ export default function TicketsPage() {
         }
 
         setTickets(payload.tickets);
+        setDraftStatusByTicket(
+          payload.tickets.reduce<Record<string, string>>((acc, ticket) => {
+            acc[ticket.id] = ticket.status;
+            return acc;
+          }, {}),
+        );
+        setDraftSeverityByTicket(
+          payload.tickets.reduce<Record<string, string>>((acc, ticket) => {
+            acc[ticket.id] = ticket.severity;
+            return acc;
+          }, {}),
+        );
       } catch (fetchError: unknown) {
         setError(summarizeError(fetchError));
       } finally {
@@ -54,6 +71,36 @@ export default function TicketsPage() {
 
     loadTickets();
   }, []);
+
+  const handleUpdateTicket = async (ticketId: string) => {
+    const status = draftStatusByTicket[ticketId];
+    const severity = draftSeverityByTicket[ticketId];
+
+    try {
+      setEditingTicketId(ticketId);
+      setError(null);
+
+      const response = await fetch(`${API_BASE_URL}/admin/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status, severity }),
+      });
+
+      const payload = (await response.json()) as { error?: string; ticket?: TicketRow };
+
+      if (!response.ok || !payload.ticket) {
+        throw new Error(payload.error || "Failed to update ticket");
+      }
+
+      setTickets((prev) => prev.map((ticket) => (ticket.id === ticketId ? payload.ticket! : ticket)));
+    } catch (updateError: unknown) {
+      setError(summarizeError(updateError));
+    } finally {
+      setEditingTicketId(null);
+    }
+  };
 
   const openCount = useMemo(() => tickets.filter((ticket) => ticket.status === "OPEN").length, [tickets]);
   const inReviewCount = useMemo(() => tickets.filter((ticket) => ticket.status === "IN_REVIEW").length, [tickets]);
@@ -88,21 +135,23 @@ export default function TicketsPage() {
             <tr>
               <th>Title</th>
               <th>Status</th>
+              <th>Severity</th>
               <th>Reason</th>
               <th>Raised By</th>
               <th>Against</th>
               <th>Agreement</th>
               <th>Created</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={7}>Loading tickets...</td>
+                <td colSpan={9}>Loading tickets...</td>
               </tr>
             ) : tickets.length === 0 ? (
               <tr>
-                <td colSpan={7}>No tickets found.</td>
+                <td colSpan={9}>No tickets found.</td>
               </tr>
             ) : (
               tickets.map((ticket) => (
@@ -111,99 +160,50 @@ export default function TicketsPage() {
                     <button
                       type="button"
                       className="border-0 bg-transparent p-0 font-semibold text-[#1d4c35] hover:underline"
-                      onClick={() => setSelectedTicket(ticket)}
                     >
-                      {ticket.title}
+                      <Link href={`/tickets/${ticket.id}`}>{ticket.title}</Link>
                     </button>
                   </td>
-                  <td>{ticket.status}</td>
-                  <td>{ticket.reason}</td>
-                  <td>{ticket.raisedBy.email}</td>
-                  <td>{ticket.againstUser.email}</td>
-                  <td>{ticket.agreement ? ticket.agreement.title : "-"}</td>
-                  <td>{formatDate(ticket.createdAt)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                  <td>
+                    <select
+                      value={draftStatusByTicket[ticket.id] ?? ticket.status}
+                      onChange={(event) =>
+                          ))}
+                        </div>
+                      )}
+                    </div>
 
-      <AdminInfoModal
-        open={Boolean(selectedTicket)}
-        title={selectedTicket ? `Ticket: ${selectedTicket.title}` : "Ticket"}
-        onClose={() => setSelectedTicket(null)}
-      >
-        {selectedTicket ? (
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-xl border border-[#d9d0bf] bg-[#fefaf5] p-4 text-[#122016]">
-                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Ticket Information</h4>
-                <div className="space-y-2 text-sm">
-                  <p><strong className="text-[#122016]">ID:</strong> <span className="text-[#526157] font-mono">{selectedTicket.id}</span></p>
-                  <p><strong>Title:</strong> {selectedTicket.title}</p>
-                  <p><strong>Status:</strong> 
-                    <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      selectedTicket.status === 'OPEN' ? 'bg-[#fde8c8] text-[#7b4c00]' : 
-                      selectedTicket.status === 'IN_REVIEW' ? 'bg-[#ebf4f9] text-[#1f6a8f]' : 
-                      'bg-[#dff4e6] text-[#1f6a42]'
-                    }`}>
-                      {selectedTicket.status}
-                    </span>
-                  </p>
-                  <p><strong>Reason Category:</strong> <span className="text-[#8f1f2f] font-medium">{selectedTicket.reason}</span></p>
-                  <p><strong>Created:</strong> {formatDate(selectedTicket.createdAt)}</p>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-[#d9d0bf] bg-[#fffbf9] p-4 text-[#122016]">
-                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Parties Involved</h4>
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-[10px] font-bold text-[#1f6a42] uppercase">Raised By (Complainant)</p>
-                    <p className="text-sm font-medium">{selectedTicket.raisedBy.name || 'Anonymous'}</p>
-                    <p className="text-xs text-[#526157]">{selectedTicket.raisedBy.email}</p>
+                    <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                      <p className="text-[10px] font-bold uppercase text-[#526157] mb-2">Related Tickets ({agreementDetails.tickets.length})</p>
+                      {agreementDetails.tickets.length === 0 ? (
+                        <p className="text-xs text-[#526157]">No other tickets are linked to this agreement.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {agreementDetails.tickets.map((agreementTicket) => (
+                            <div key={agreementTicket.id} className="rounded-md border border-[#ece6d9] bg-[#fcfbf8] p-2">
+                              <p className="text-xs font-semibold text-[#122016]">{agreementTicket.title}</p>
+                              <p className="text-[11px] text-[#526157]">
+                                {agreementTicket.status} | {agreementTicket.severity} | {formatDate(agreementTicket.createdAt)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="pt-2 border-t border-[#ece6d9]">
-                    <p className="text-[10px] font-bold text-[#8f1f2f] uppercase">Against (Defendant)</p>
-                    <p className="text-sm font-medium">{selectedTicket.againstUser.name || 'Anonymous'}</p>
-                    <p className="text-xs text-[#526157]">{selectedTicket.againstUser.email}</p>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold">{selectedTicket.agreement.title}</p>
+                      <p className="text-[10px] text-[#526157] font-mono">{selectedTicket.agreement.id}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="px-2 py-1 rounded border border-[#d9d0bf] bg-white text-[10px] font-bold uppercase">
+                        {selectedTicket.agreement.status}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {selectedTicket.evidenceUrl && (
-              <div className="rounded-xl border border-[#d9d0bf] bg-[#ebf4f9] p-4 text-[#122016]">
-                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Evidence Submitted</h4>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm truncate mr-4">{selectedTicket.evidenceUrl}</p>
-                  <a 
-                    href={selectedTicket.evidenceUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="shrink-0 rounded-md border border-[#1f6a8f] bg-white px-3 py-1.5 text-xs font-bold text-[#1f6a8f] hover:bg-[#ebf4f9]"
-                  >
-                    View Evidence
-                  </a>
-                </div>
-              </div>
-            )}
-
-            {selectedTicket.agreement && (
-              <div className="rounded-xl border border-[#d9d0bf] bg-[#f9fdf3] p-4 text-[#122016]">
-                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Context: Linked Agreement</h4>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold">{selectedTicket.agreement.title}</p>
-                    <p className="text-[10px] text-[#526157] font-mono">{selectedTicket.agreement.id}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="px-2 py-1 rounded border border-[#d9d0bf] bg-white text-[10px] font-bold uppercase">
-                      {selectedTicket.agreement.status}
-                    </span>
-                  </div>
-                </div>
+                )}
               </div>
             )}
 
