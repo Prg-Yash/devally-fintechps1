@@ -29,7 +29,13 @@ import { authClient } from "@/lib/auth-client";
 import {
   formatPusdAmount,
   getEscrowContract,
+  getPermitNonce,
   getProjectById,
+  getProjectIdByClientRef,
+  getPusdContract,
+  PERMIT_DOMAIN,
+  PUSD_CONTRACT_ADDRESS,
+  splitSignature,
   shortAddress,
   type OnchainProject,
   scalePusdAmount,
@@ -38,6 +44,10 @@ import {
 import { thirdwebClient } from "@/lib/thirdweb-client";
 import { useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { prepareContractCall, sendAndConfirmTransaction } from "thirdweb";
+import { verifyTypedData } from "viem";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { markMilestonePaidAction } from "./actions";
 
 // ─── Animation Config ───
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 };
@@ -58,6 +68,15 @@ interface Milestone {
   amount: number;
   status: string;
   dueDate?: string;
+  paidAt?: string;
+  payoutTxHash?: string;
+}
+
+interface ChangeRequest {
+  id: string;
+  note: string;
+  createdAt: string;
+  requestedBy?: { id: string; name: string; email: string };
 }
 
 interface Agreement {
@@ -74,6 +93,9 @@ interface Agreement {
   projectId?: number;
   receiverAddress?: string;
   transactionHash?: string;
+  fundingError?: string | null;
+  dueDate?: string;
+  changeRequests?: ChangeRequest[];
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
@@ -94,6 +116,11 @@ export default function AgreementDetailPage() {
   const [onchainData, setOnchainData] = useState<OnchainProject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isReleasing, setIsReleasing] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [changeNote, setChangeNote] = useState("");
+  const [approveWallet, setApproveWallet] = useState("");
+  const [fundingError, setFundingError] = useState<string | null>(null);
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
 
@@ -134,6 +161,22 @@ export default function AgreementDetailPage() {
 
       // If not found but looks like "pid-X" or just a number, try by projectId.
       if (!agreementData) {
+        // Try direct lookup by agreement id before pid-based fallback.
+        try {
+          const directRes = await fetch(`${API_BASE_URL}/agreements/${id}`);
+          if (directRes.ok) {
+            const directData = await directRes.json();
+            agreementData = directData?.agreement || null;
+            targetProjectId = agreementData?.projectId ?? null;
+          }
+        } catch (e) {
+          console.warn("Direct agreement fetch failed", e);
+        }
+
+        if (agreementData) {
+          setAgreement(agreementData);
+        }
+
         if (id.startsWith("pid-")) {
           targetProjectId = parseInt(id.replace("pid-", ""));
         } else if (!isNaN(Number(id))) {
@@ -160,6 +203,8 @@ export default function AgreementDetailPage() {
       }
 
       setAgreement(agreementData);
+      setApproveWallet(agreementData?.receiverAddress || "");
+      setFundingError((agreementData as any)?.fundingError || null);
 
       // 2. Fetch On-chain Data
       if (targetProjectId !== null) {
@@ -183,6 +228,242 @@ export default function AgreementDetailPage() {
     if (!isProtocolRoute && !session?.user?.id) return;
     fetchDetails();
   }, [id, isProtocolRoute, session?.user?.id]);
+
+  const agreementIdToClientRefId = (agreementId: string) => {
+    const bytes = new TextEncoder().encode(agreementId);
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const tail = (hex.slice(-64) || "0").padStart(64, "0");
+    return BigInt(`0x${tail}`);
+  };
+
+  const handleRequestChanges = async () => {
+    if (!agreement || !session?.user?.id) return;
+    if (!changeNote.trim()) {
+      toast.error("Please add a change request note");
+      return;
+    }
+
+    try {
+      setIsSubmittingReview(true);
+      const res = await fetch(`${API_BASE_URL}/agreements/${agreement.id}/request-changes`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receiverId: session.user.id,
+          note: changeNote,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to submit change request");
+      }
+
+      toast.success("Change request submitted");
+      setChangeNote("");
+      await fetchDetails();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to request changes");
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const handleApproveForFunding = async () => {
+    if (!agreement || !session?.user?.id) return;
+    if (!approveWallet.trim()) {
+      toast.error("Wallet address is required to approve for funding");
+      return;
+    }
+
+    try {
+      setIsSubmittingReview(true);
+      const res = await fetch(`${API_BASE_URL}/agreements/${agreement.id}/approve`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receiverId: session.user.id,
+          receiverAddress: approveWallet.trim(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to approve agreement");
+      }
+
+      toast.success("Agreement approved and ready to fund");
+      await fetchDetails();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to approve agreement");
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const handlePublishAndFund = async () => {
+    if (!agreement || !session?.user?.id) return;
+    if (!activeSigner) {
+      toast.error("Connect your client wallet to publish and fund");
+      return;
+    }
+
+    if (!agreement.receiverAddress) {
+      toast.error("Freelancer wallet address is missing. Ask freelancer to approve first.");
+      return;
+    }
+
+    try {
+      setIsPublishing(true);
+      setFundingError(null);
+
+      const ownerAddress = activeSigner.address as `0x${string}`;
+      const scaledAmount = scalePusdAmount(String(agreement.amount));
+      const permitDeadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 60);
+      const nonce = await getPermitNonce(thirdwebClient, ownerAddress);
+      const clientRefId = agreementIdToClientRefId(agreement.id);
+
+      const permitDomain = {
+        ...PERMIT_DOMAIN,
+        verifyingContract: PUSD_CONTRACT_ADDRESS as `0x${string}`,
+      } as const;
+
+      const permitTypes = {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      } as const;
+
+      const permitMessage = {
+        owner: ownerAddress,
+        spender: ESCROW_CONTRACT_ADDRESS as `0x${string}`,
+        value: scaledAmount,
+        nonce,
+        deadline: permitDeadline,
+      } as const;
+
+      const signature = await activeSigner.signTypedData({
+        domain: permitDomain,
+        types: permitTypes,
+        primaryType: "Permit",
+        message: permitMessage,
+      });
+
+      const signatureValid = await verifyTypedData({
+        address: ownerAddress,
+        domain: permitDomain,
+        types: permitTypes,
+        primaryType: "Permit",
+        message: permitMessage,
+        signature,
+      });
+
+      if (!signatureValid) {
+        throw new Error("Permit signature verification failed");
+      }
+
+      const { v, r, s } = splitSignature(signature);
+
+      const tx = prepareContractCall({
+        contract: escrowContract,
+        method:
+          "function createAndFundAgreementWithClientRef(uint256 _clientRefId, address _freelancer, uint256 _amount, uint256 _deadline, uint8 v, bytes32 r, bytes32 s)",
+        params: [
+          clientRefId,
+          agreement.receiverAddress as `0x${string}`,
+          scaledAmount,
+          permitDeadline,
+          Number(v),
+          r,
+          s,
+        ],
+      });
+
+      const result = await sendAndConfirmTransaction({
+        account: activeSigner,
+        transaction: tx,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      const projectId = await getProjectIdByClientRef(thirdwebClient, ownerAddress, clientRefId);
+
+      const publishRes = await fetch(`${API_BASE_URL}/agreements/${agreement.id}/publish`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creatorId: session.user.id,
+          projectId: Number(projectId),
+          transactionHash: result.transactionHash,
+          receiverAddress: agreement.receiverAddress,
+          clientRefId: clientRefId.toString(),
+        }),
+      });
+
+      const publishData = await publishRes.json().catch(() => ({}));
+      if (!publishRes.ok) {
+        throw new Error(publishData?.error || "Funding succeeded but publish sync failed");
+      }
+
+      toast.success("Agreement published on-chain and activated");
+      await fetchDetails();
+    } catch (error: any) {
+      const message = error?.message || "Funding failed";
+      setFundingError(message);
+      toast.error(message);
+
+      if (agreement && session?.user?.id) {
+        await fetch(`${API_BASE_URL}/agreements/${agreement.id}/funding-error`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            creatorId: session.user.id,
+            errorMessage: message,
+          }),
+        }).catch(() => null);
+      }
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleReleaseMilestone = async (milestone: Milestone) => {
+    if (!agreement || !onchainData || !activeSigner) return;
+
+    try {
+      setIsReleasing(true);
+      const payoutAmount = scalePusdAmount(String(milestone.amount));
+
+      const tx = prepareContractCall({
+        contract: escrowContract,
+        method: "function releaseMilestone(uint256 _projectId, uint256 _amount)",
+        params: [onchainData.projectId, payoutAmount],
+      });
+
+      const result = await sendAndConfirmTransaction({
+        account: activeSigner,
+        transaction: tx,
+      });
+
+      await markMilestonePaidAction({
+        agreementId: agreement.id,
+        milestoneId: milestone.id,
+        payoutTxHash: result.transactionHash,
+      });
+
+      toast.success(`Milestone \"${milestone.title}\" released and synced`);
+      await fetchDetails();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to release milestone");
+    } finally {
+      setIsReleasing(false);
+    }
+  };
 
   const handleReleaseFull = async () => {
     if (!onchainData || !activeSigner) return;
@@ -235,11 +516,16 @@ export default function AgreementDetailPage() {
   const displayTitle = agreement?.title || (onchainData ? `Protocol Project #${onchainData.projectId.toString()}` : "Unknown Project");
   const displayStatus = agreement?.status || (onchainData?.isCompleted ? "COMPLETED" : onchainData?.isFunded ? "FUNDED" : "PENDING");
   const displayId = agreement?.id || (onchainData ? `ONCHAIN-PID-${onchainData.projectId.toString()}` : id);
+  const linkedProjectId = agreement?.projectId ?? (onchainData ? Number(onchainData.projectId) : null);
+  const creationTxHash = agreement?.transactionHash || null;
+  const txExplorerUrl = creationTxHash ? `https://sepolia.etherscan.io/tx/${creationTxHash}` : null;
 
   const bTotal = onchainData ? BigInt(onchainData.amount) : BigInt(0);
   const bPaid = onchainData ? BigInt(onchainData.releasedAmount) : BigInt(0);
   const remaining = bTotal - bPaid;
   const progress = bTotal > BigInt(0) ? Number((bPaid * BigInt(100)) / bTotal) : 0;
+  const agreementMilestonesTotal = agreement?.milestones?.reduce((sum, milestone) => sum + (Number(milestone.amount) || 0), 0) || 0;
+  const milestonePublishValid = agreement ? Math.abs(agreementMilestonesTotal - Number(agreement.amount || 0)) < 0.000001 : false;
 
   return (
     <motion.div
@@ -363,6 +649,78 @@ export default function AgreementDetailPage() {
                 </div>
               </motion.section>
 
+              {(agreement.status === "DRAFT" || agreement.status === "NEGOTIATING" || agreement.status === "READY_TO_FUND") && (
+                <motion.section variants={maskedReveal} className="space-y-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-2xl bg-white shadow-sm border border-[#1A2406]/5 flex items-center justify-center">
+                      <ShieldCheck className="w-5 h-5 text-[#1A2406]/40" />
+                    </div>
+                    <h2 className="text-xl font-jakarta font-bold text-[#1A2406]">Draft to Escrow Workflow</h2>
+                  </div>
+
+                  <div className="p-6 rounded-[28px] bg-white border border-[#1A2406]/5 space-y-4">
+                    <p className="text-xs text-[#1A2406]/50">
+                      Current state: <span className="font-bold text-[#1A2406]">{agreement.status}</span>
+                    </p>
+
+                    {(agreement as any).changeRequests?.length > 0 && (
+                      <div className="space-y-2 rounded-2xl bg-[#1A2406]/[0.02] border border-[#1A2406]/5 p-4">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Change Request Log</p>
+                        {(agreement as any).changeRequests.map((entry: any) => (
+                          <div key={entry.id} className="text-xs text-[#1A2406]/70">
+                            <span className="font-semibold">{entry.requestedBy?.name || entry.requestedBy?.email}</span>: {entry.note}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {session?.user?.id === agreement.receiver?.id && agreement.status !== "READY_TO_FUND" && (
+                      <div className="grid gap-4">
+                        <div className="space-y-2">
+                          <Label>Need revisions?</Label>
+                          <Input
+                            type="text"
+                            value={changeNote}
+                            onChange={(e) => setChangeNote(e.target.value)}
+                            placeholder="Ask client for specific changes"
+                          />
+                          <Button disabled={isSubmittingReview} onClick={handleRequestChanges} variant="outline">
+                            {isSubmittingReview ? <Loader2 className="w-4 h-4 animate-spin" /> : "Request Changes"}
+                          </Button>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Wallet for escrow payout</Label>
+                          <Input
+                            type="text"
+                            value={approveWallet}
+                            onChange={(e) => setApproveWallet(e.target.value)}
+                            placeholder="0x..."
+                          />
+                          <Button disabled={isSubmittingReview} onClick={handleApproveForFunding}>
+                            {isSubmittingReview ? <Loader2 className="w-4 h-4 animate-spin" /> : "Approve"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {session?.user?.id === agreement.creator?.id && agreement.status === "READY_TO_FUND" && (
+                      <div className="space-y-3">
+                        {!milestonePublishValid && (
+                          <p className="text-xs text-red-500">Milestone total must match agreement total.</p>
+                        )}
+                        {fundingError && (
+                          <p className="text-xs text-red-500">Last funding error: {fundingError}</p>
+                        )}
+                        <Button onClick={handlePublishAndFund} disabled={isPublishing || !milestonePublishValid} className="w-full">
+                          {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Publish & Fund"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </motion.section>
+              )}
+
               {/* Section: Milestone Registry */}
               <motion.section variants={maskedReveal} className="space-y-8">
                 <div className="flex items-center gap-4">
@@ -397,9 +755,21 @@ export default function AgreementDetailPage() {
                             </div>
                           </div>
                         </div>
-                        <Badge variant="outline" className="rounded-full bg-[#FAFAF9] text-[8px] font-black uppercase tracking-widest text-[#1A2406]/30 border-none px-3 py-1">
-                          {ms.status}
-                        </Badge>
+                        <div className="flex flex-col items-end gap-2">
+                          <Badge variant="outline" className="rounded-full bg-[#FAFAF9] text-[8px] font-black uppercase tracking-widest text-[#1A2406]/30 border-none px-3 py-1">
+                            {ms.status}
+                          </Badge>
+                          {agreement.status === "ACTIVE" && session?.user?.id === agreement.creator?.id && ms.status !== "PAID" && onchainData && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleReleaseMilestone(ms)}
+                              disabled={isReleasing}
+                              className="h-8 text-[10px] uppercase tracking-widest"
+                            >
+                              {isReleasing ? <Loader2 className="w-3 h-3 animate-spin" /> : "Release Milestone"}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )) : (
@@ -518,6 +888,25 @@ export default function AgreementDetailPage() {
               </p>
             </div>
             <div className="w-full pt-4 border-t border-[#1A2406]/5">
+              <div className="mb-3 space-y-1 text-left">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/30">On-Chain Reference</p>
+                <p className="text-[10px] font-mono text-[#1A2406]/40">
+                  {linkedProjectId !== null ? `Project ID: ${linkedProjectId}` : "Project ID pending"}
+                </p>
+                {creationTxHash ? (
+                  <a
+                    href={txExplorerUrl || undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[10px] font-mono text-[#1A2406]/60 hover:text-[#1A2406] transition-colors"
+                  >
+                    Tx: {shortAddress(creationTxHash)}
+                    <ArrowUpRight className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <p className="text-[10px] font-mono text-[#1A2406]/30">Creation transaction pending sync</p>
+                )}
+              </div>
               <p className="text-[9px] font-mono text-[#1A2406]/20 truncate">
                 {onchainData?.freelancer ? `Target: ${onchainData.freelancer}` : "Identity Pending"}
               </p>

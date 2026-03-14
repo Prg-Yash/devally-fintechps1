@@ -49,7 +49,7 @@ import {
   getEscrowContract,
   getPusdContract,
   getPermitNonce,
-  getProjectsForClient,
+  getProjectById,
   scalePusdAmount,
   formatPusdAmount,
   splitSignature,
@@ -134,16 +134,11 @@ export default function AgreementsPage() {
   const [fundedProjects, setFundedProjects] = useState<OnchainProject[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
 
-  // Release milestone state
-  const [releasingProjectId, setReleasingProjectId] = useState<bigint | null>(null);
-  const [releaseAmount, setReleaseAmount] = useState("");
-  const [isReleasing, setIsReleasing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"incoming" | "outgoing">("incoming");
   const hasLoadedAgreementsRef = useRef(false);
   const lastFetchedUserIdRef = useRef<string | null>(null);
   const agreementsFetchInFlightRef = useRef(false);
   const projectsFetchInFlightRef = useRef(false);
-  const lastFetchedProjectsAddressRef = useRef<string | null>(null);
+  const lastFetchedProjectIdsKeyRef = useRef<string | null>(null);
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
   const pusdContract = useMemo(() => getPusdContract(thirdwebClient), []);
@@ -222,24 +217,44 @@ export default function AgreementsPage() {
   const fetchOnchainProjects = async (options: { force?: boolean } = {}) => {
     const { force = false } = options;
 
-    if (!permitOwnerAddress) {
+    const uniqueProjectIds = Array.from(
+      new Set(
+        [...incomingAgreements, ...outgoingAgreements]
+          .map((agreement) => agreement.projectId)
+          .filter((projectId): projectId is number => projectId !== undefined && projectId !== null),
+      ),
+    ).sort((a, b) => a - b);
+
+    const currentIdsKey = uniqueProjectIds.join(",");
+
+    if (uniqueProjectIds.length === 0) {
       setFundedProjects([]);
-      lastFetchedProjectsAddressRef.current = null;
+      lastFetchedProjectIdsKeyRef.current = null;
       return;
     }
 
     if (projectsFetchInFlightRef.current) return;
-    if (!force && lastFetchedProjectsAddressRef.current === permitOwnerAddress) return;
+    if (!force && lastFetchedProjectIdsKeyRef.current === currentIdsKey) return;
 
     try {
       projectsFetchInFlightRef.current = true;
       setIsLoadingProjects(true);
-      const projects = await getProjectsForClient(thirdwebClient, permitOwnerAddress, 12);
-      setFundedProjects(projects);
-      lastFetchedProjectsAddressRef.current = permitOwnerAddress;
+
+      const results = await Promise.all(
+        uniqueProjectIds.map(async (projectId) => {
+          try {
+            return await getProjectById(thirdwebClient, BigInt(projectId));
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      setFundedProjects(results.filter((project): project is OnchainProject => project !== null));
+      lastFetchedProjectIdsKeyRef.current = currentIdsKey;
     } catch (error) {
       console.error("Error fetching onchain projects:", error);
-      toast.error("Failed to load funded projects from chain");
+      toast.error("Failed to resolve protocol links from chain");
     } finally {
       projectsFetchInFlightRef.current = false;
       setIsLoadingProjects(false);
@@ -261,56 +276,19 @@ export default function AgreementsPage() {
 
   useEffect(() => {
     fetchOnchainProjects();
-  }, [permitOwnerAddress]);
+  }, [incomingAgreements, outgoingAgreements]);
 
-
-  /* ─── Release Milestone ──────────────────────────────────────────── */
-
-  const handleReleaseMilestone = async (projectId: bigint) => {
-    if (!releaseAmount || Number(releaseAmount) <= 0) {
-      toast.error("Enter a valid PUSD amount to release");
-      return;
-    }
-
-    const fundingAccount = adminAccount || account;
-    if (!fundingAccount) {
-      toast.error("Connect your wallet first");
-      return;
-    }
-
-    try {
-      setIsReleasing(true);
-      const scaledRelease = scalePusdAmount(releaseAmount);
-
-      const tx = prepareContractCall({
-        contract: escrowContract,
-        method: "function releaseMilestone(uint256 _projectId, uint256 _amount)",
-        params: [projectId, scaledRelease],
-      });
-
-      await sendAndConfirmTransaction({
-        account: fundingAccount,
-        transaction: tx,
-      });
-
-      toast.success(`Released ${releaseAmount} PUSD to the freelancer!`);
-      setReleaseAmount("");
-      setReleasingProjectId(null);
-
-      // Refresh project data
-      fetchOnchainProjects();
-    } catch (error: any) {
-      console.error("Release milestone failed:", error);
-      toast.error(error?.message || "Failed to release milestone");
-    } finally {
-      setIsReleasing(false);
-    }
-  };
 
   /* ─── Status Badge Colors ────────────────────────────────────────── */
 
   const getStatusStyle = (status: string) => {
     switch (status.toUpperCase()) {
+      case "DRAFT":
+        return "bg-slate-100 text-slate-700 border-slate-200";
+      case "NEGOTIATING":
+        return "bg-orange-50 text-orange-700 border-orange-200";
+      case "READY_TO_FUND":
+        return "bg-indigo-50 text-indigo-700 border-indigo-200";
       case "PENDING":
       case "AWAITING ACTION":
         return "bg-amber-50 text-amber-700 border-amber-200";
@@ -329,6 +307,9 @@ export default function AgreementsPage() {
 
   const getStatusLabel = (status: string) => {
     switch (status.toUpperCase()) {
+      case "DRAFT": return "Draft";
+      case "NEGOTIATING": return "Negotiating";
+      case "READY_TO_FUND": return "Ready To Fund";
       case "PENDING": return "Awaiting Action";
       case "FUNDED": return "Active Contract";
       case "COMPLETED": return "Successfully Settled";
@@ -338,6 +319,9 @@ export default function AgreementsPage() {
 
   const getStatusIcon = (status: string) => {
     switch (status.toUpperCase()) {
+      case "DRAFT": return <FileText className="w-3.5 h-3.5" />;
+      case "NEGOTIATING": return <Send className="w-3.5 h-3.5" />;
+      case "READY_TO_FUND": return <Wallet className="w-3.5 h-3.5" />;
       case "PENDING": return <Clock className="w-3.5 h-3.5" />;
       case "ACTIVE": return <Zap className="w-3.5 h-3.5" />;
       case "COMPLETED": return <CheckCircle2 className="w-3.5 h-3.5" />;
@@ -381,7 +365,7 @@ export default function AgreementsPage() {
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 ${getStatusStyle(agreement.status)}`}>
                     {getStatusIcon(agreement.status)}
-                    {agreement.status}
+                    {getStatusLabel(agreement.status)}
                   </Badge>
                   <span className="text-[10px] font-mono text-[#1A2406]/20 font-bold uppercase tracking-widest">#{agreement.id.slice(-6)}</span>
                 </div>
@@ -416,7 +400,7 @@ export default function AgreementsPage() {
                 </div>
               ) : (
                 <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700">
-                  Protocol link missing for this agreement
+                  Off-chain only record. No on-chain project linked.
                 </p>
               )}
             </div>
@@ -469,126 +453,18 @@ export default function AgreementsPage() {
     );
   };
 
-  const ProjectCard = ({ project }: { project: OnchainProject }) => {
-    const metadata = useMemo(() => {
-      const pId = Number(project.projectId);
-      const all = [...incomingAgreements, ...outgoingAgreements];
-      // Try fuzzy matching on string or number
-      return all.find((a: any) => Number(a.projectId) === pId);
-    }, [project.projectId, incomingAgreements, outgoingAgreements]);
+  const allAgreements = useMemo(() => {
+    const byId = new Map<string, Agreement>();
+    for (const agreement of [...outgoingAgreements, ...incomingAgreements]) {
+      byId.set(agreement.id, agreement);
+    }
 
-    const detailUrl = metadata
-      ? `/agreements/${metadata.id}`
-      : `/agreements/pid-${project.projectId.toString()}`;
-
-    const bTotal = BigInt(project.amount);
-    const bPaid = BigInt(project.releasedAmount);
-
-    const totalStr = formatPusdAmount(bTotal);
-    const paidStr = formatPusdAmount(bPaid);
-    const remaining = bTotal - bPaid;
-    const remainingStr = formatPusdAmount(remaining);
-
-    const status = project.isCompleted ? "COMPLETED" : project.isFunded ? "FUNDED" : "PENDING";
-    const displayStatus = getStatusLabel(status);
-
-    return (
-      <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
-        <Card className="group relative bg-white border border-[#1A2406]/5 rounded-[32px] overflow-hidden shadow-sm hover:shadow-xl hover:shadow-[#1A2406]/5 transition-all duration-500">
-          <div className="absolute top-0 left-0 w-full h-1.5 bg-[#D9F24F]/10 overflow-hidden">
-            <motion.div
-              initial={{ x: "-100%" }}
-              animate={{ x: "0%" }}
-              transition={{ duration: 1.5, ease: "circOut" }}
-              className="h-full bg-[#D9F24F]"
-              style={{ width: bTotal > BigInt(0) ? `${Number((bPaid * BigInt(100)) / bTotal)}%` : "0%" }}
-            />
-          </div>
-
-          <CardHeader className="pb-4 pt-8 px-6 space-y-4">
-            <div className="flex items-start justify-between">
-              <div className="space-y-1">
-                <Link href={detailUrl}>
-                  <h3 className="text-lg font-jakarta font-bold text-[#1A2406] leading-tight hover:text-[#D9F24F] transition-colors cursor-pointer flex items-center gap-2">
-                    {metadata?.title || `Protocol #${project.projectId.toString()}`}
-                    <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </h3>
-                </Link>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono font-bold text-[#1A2406]/20 uppercase tracking-widest">
-                    Sent to Service Provider: {metadata?.receiver?.name || shortAddress(project.freelancer)}
-                  </span>
-                </div>
-              </div>
-              <Badge variant="outline" className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wider border-none ${getStatusStyle(status)}`}>
-                {displayStatus}
-              </Badge>
-            </div>
-
-            {metadata?.description && (
-              <p className="text-xs text-[#1A2406]/50 line-clamp-2 leading-relaxed">
-                {metadata.description}
-              </p>
-            )}
-          </CardHeader>
-
-          <CardContent className="px-6 pb-6 space-y-6">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <p className="text-[8px] font-bold text-[#1A2406]/20 uppercase tracking-widest">Full Budget</p>
-                <p className="text-xs font-bold text-[#1A2406]">{totalStr}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-[8px] font-bold text-[#1A2406]/20 uppercase tracking-widest">Payment Sent</p>
-                <p className="text-xs font-bold text-emerald-600">-{paidStr}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-[8px] font-bold text-[#1A2406]/20 uppercase tracking-widest">Available</p>
-                <p className="text-xs font-bold text-[#1A2406]">{remainingStr}</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {project.isFunded && !project.isCompleted && remaining > BigInt(0) && (
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => {
-                      setReleasingProjectId(project.projectId);
-                      setReleaseAmount(remainingStr);
-                    }}
-                    className="flex-1 h-11 bg-[#1A2406] text-white hover:bg-[#2c3d0a] font-bold rounded-2xl text-[10px] uppercase tracking-widest shadow-lg shadow-[#1A2406]/10 transition-all active:scale-95"
-                  >
-                    Settle Full Balance
-                  </Button>
-                  <Button
-                    asChild
-                    variant="outline"
-                    className="w-11 h-11 p-0 border-[#1A2406]/10 hover:bg-[#D9F24F]/10 rounded-2xl flex items-center justify-center transition-all hover:scale-105 active:scale-95"
-                  >
-                    <Link href={detailUrl}>
-                      <ArrowUpRight className="w-4 h-4 text-[#1A2406]" />
-                    </Link>
-                  </Button>
-                </div>
-              )}
-
-              {project.isCompleted && (
-                <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-100 italic text-[10px] font-bold uppercase tracking-widest">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Vault fully settled
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-    );
-  };
-
-  const tabs = [
-    { id: "incoming", label: "Incoming", count: incomingAgreements.length },
-    { id: "outgoing", label: "Outgoing", count: outgoingAgreements.length },
-  ];
+    return Array.from(byId.values()).sort((a, b) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return bTime - aTime;
+    });
+  }, [incomingAgreements, outgoingAgreements]);
 
   return (
     <motion.div
@@ -607,11 +483,9 @@ export default function AgreementsPage() {
               PayCrow Secure Escrow
             </span>
           </div>
-          <h1 className="font-jakarta text-4xl tracking-[-0.04em] text-[#1A2406]">
-            Agreements <span className="font-light text-[#1A2406]/40">& Ledgers</span>
-          </h1>
+          <h1 className="font-jakarta text-4xl tracking-[-0.04em] text-[#1A2406]">Agreements</h1>
           <p className="font-sans text-[#1A2406]/30 text-sm font-medium">
-            Manage your on-chain milestone payouts and document digital contracts.
+            Open one agreement to see both off-chain contract metadata and on-chain escrow state.
           </p>
         </div>
 
@@ -625,95 +499,75 @@ export default function AgreementsPage() {
         </Link>
       </motion.div>
 
-      {/* ── On-chain Projects Section ── */}
-      <motion.div variants={maskedReveal} className="space-y-6">
-        <div className="flex items-center justify-between px-1">
-          <h2 className="font-jakarta text-xl font-bold tracking-tight text-[#1A2406] flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5" />
-            Active Vault Projects
-          </h2>
-          <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/30 uppercase tracking-widest border-none">
-            On-Chain Verified
-          </Badge>
-        </div>
-
-        {isLoadingProjects ? (
-          <div className="flex flex-col items-center justify-center py-16 space-y-4">
-            <Loader2 className="w-8 h-8 animate-spin text-[#1A2406]/10" />
-            <p className="text-[10px] font-bold tracking-[0.2em] text-[#1A2406]/20 uppercase">Scanning Blockchain Ledgers</p>
-          </div>
-        ) : fundedProjects.length === 0 ? (
-          <div className="bg-white/40 backdrop-blur-md border border-dashed border-[#1A2406]/5 rounded-[32px] p-16 text-center">
-            <ShieldCheck className="w-10 h-10 text-[#1A2406]/10 mx-auto mb-4" />
-            <p className="text-sm text-[#1A2406]/30 font-medium italic">No active vault projects found for this wallet.</p>
-          </div>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {fundedProjects.map((project) => (
-              <ProjectCard key={project.projectId.toString()} project={project} />
-            ))}
-          </div>
-        )}
-      </motion.div>
-
-      {/* ── Off-chain Agreements Section ── */}
+      {/* ── Unified Agreements Section ── */}
       <motion.div variants={maskedReveal} className="space-y-8">
-        <div className="px-1">
+        <div className="px-1 flex items-center justify-between gap-3">
           <h2 className="font-jakarta text-xl font-bold tracking-tight text-[#1A2406] flex items-center gap-2 mb-1">
             <FileText className="w-5 h-5 font-bold" />
-            Agreement Records
+            Agreements
           </h2>
-          <p className="text-[11px] font-medium text-[#1A2406]/30 uppercase tracking-widest">Contractual metadata and drafts</p>
-        </div>
-
-        {/* Sliding Tabs (Profile Style) */}
-        <div className="relative border-b border-black/[0.05]">
-          <div className="flex gap-8 overflow-x-auto scrollbar-none">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`relative pb-4 px-1 text-xs font-bold uppercase tracking-widest transition-all duration-300 whitespace-nowrap
-                  ${activeTab === tab.id ? "text-[#1A2406]" : "text-[#1A2406]/30 hover:text-[#1A2406]/60"}`}
-              >
-                <div className="flex items-center gap-2">
-                  {tab.label}
-                  <span className={`px-1.5 py-0.5 rounded-md text-[9px] ${activeTab === tab.id ? 'bg-[#1A2406] text-white' : 'bg-black/[0.05]'}`}>
-                    {tab.count}
-                  </span>
-                </div>
-                {activeTab === tab.id && (
-                  <motion.div
-                    layoutId="active-agreement-tab"
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#D9F24F] shadow-[0_0_10px_rgba(217,242,79,0.8)]"
-                  />
-                )}
-              </button>
-            ))}
-          </div>
+          <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest border-none">
+            {allAgreements.length} total
+          </Badge>
         </div>
 
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeTab}
+            key="all-agreements"
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -10 }}
             transition={{ duration: 0.3 }}
           >
-            {isLoading ? (
+            {isLoading || isLoadingProjects ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 animate-spin text-[#1A2406]/10" />
               </div>
-            ) : (activeTab === "incoming" ? incomingAgreements : outgoingAgreements).length === 0 ? (
+            ) : allAgreements.length === 0 ? (
               <div className="bg-white/40 backdrop-blur-md border border-dashed border-[#1A2406]/5 rounded-[32px] p-20 text-center">
-                <p className="text-sm text-[#1A2406]/30 font-medium italic">No {activeTab} agreements recorded.</p>
+                <p className="text-sm text-[#1A2406]/30 font-medium italic">No agreements recorded for this account.</p>
               </div>
             ) : (
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {(activeTab === "incoming" ? incomingAgreements : outgoingAgreements).map((agreement) => (
-                  <AgreementCard key={agreement.id} agreement={agreement} type={activeTab} />
-                ))}
+              <div className="space-y-10">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#1A2406]/40">Outgoing</h3>
+                    <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest border-none">
+                      {outgoingAgreements.length}
+                    </Badge>
+                  </div>
+                  {outgoingAgreements.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-[#1A2406]/10 p-8 text-center text-sm text-[#1A2406]/30">
+                      No outgoing agreements.
+                    </div>
+                  ) : (
+                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                      {outgoingAgreements.map((agreement) => (
+                        <AgreementCard key={agreement.id} agreement={agreement} type="outgoing" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#1A2406]/40">Incoming</h3>
+                    <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest border-none">
+                      {incomingAgreements.length}
+                    </Badge>
+                  </div>
+                  {incomingAgreements.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-[#1A2406]/10 p-8 text-center text-sm text-[#1A2406]/30">
+                      No incoming agreements.
+                    </div>
+                  ) : (
+                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                      {incomingAgreements.map((agreement) => (
+                        <AgreementCard key={agreement.id} agreement={agreement} type="incoming" />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </motion.div>

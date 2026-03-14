@@ -4,7 +4,7 @@ import type { ThirdwebClient } from "thirdweb";
 import { parseSignature } from "viem";
 
 // ── PayCrowEscrow & PayCrowUSD (PUSD) on Sepolia ──────────────────────────
-export const ESCROW_CONTRACT_ADDRESS = "0x9fA56Ec0eC3f22A52d9b8ac6Df8Ae7b7A253E41C";
+export const ESCROW_CONTRACT_ADDRESS = "0xfAe88C3dEd51A1d34b819Aec973C28D8F17059eB";
 export const PUSD_CONTRACT_ADDRESS = "0xA66983663d72ec5B521aA3082635EfbB52C764AA";
 
 export const PUSD_DECIMALS = 6;
@@ -23,6 +23,7 @@ export type OnchainProject = {
   freelancer: string;
   amount: bigint;
   releasedAmount: bigint;
+  clientRefId: bigint;
   isFunded: boolean;
   isCompleted: boolean;
 };
@@ -126,12 +127,12 @@ export async function getProjectById(client: ThirdwebClient, projectId: bigint):
     const agreementResult = await readContract({
       contract: escrowContract,
       method:
-        "function agreements(uint256) view returns (address client, address freelancer, uint256 totalAmount, uint256 releasedAmount, bool isFunded, bool isCompleted)",
+        "function agreements(uint256) view returns (address client, address freelancer, uint256 totalAmount, uint256 releasedAmount, uint256 clientRefId, bool isFunded, bool isCompleted)",
       params: [projectId],
     });
 
-    const [clientAddress, freelancerAddress, totalAmount, releasedAmount, isFunded, isCompleted] =
-      agreementResult as [string, string, bigint, bigint, boolean, boolean];
+    const [clientAddress, freelancerAddress, totalAmount, releasedAmount, clientRefId, isFunded, isCompleted] =
+      agreementResult as [string, string, bigint, bigint, bigint, boolean, boolean];
 
     return {
       projectId,
@@ -139,35 +140,73 @@ export async function getProjectById(client: ThirdwebClient, projectId: bigint):
       freelancer: freelancerAddress,
       amount: totalAmount,
       releasedAmount: releasedAmount,
+      clientRefId,
       isFunded,
       isCompleted,
     };
   } catch {
-    const projectResult = await readContract({
-      contract: escrowContract,
-      method:
-        "function projects(uint256) view returns (address client, address freelancer, uint256 amount, bool isFunded, bool isCompleted)",
-      params: [projectId],
-    });
+    try {
+      const agreementResultLegacy = await readContract({
+        contract: escrowContract,
+        method:
+          "function agreements(uint256) view returns (address client, address freelancer, uint256 totalAmount, uint256 releasedAmount, bool isFunded, bool isCompleted)",
+        params: [projectId],
+      });
 
-    const [clientAddress, freelancerAddress, amount, isFunded, isCompleted] = projectResult as [
-      string,
-      string,
-      bigint,
-      boolean,
-      boolean,
-    ];
+      const [clientAddress, freelancerAddress, totalAmount, releasedAmount, isFunded, isCompleted] =
+        agreementResultLegacy as [string, string, bigint, bigint, boolean, boolean];
 
-    return {
-      projectId,
-      client: clientAddress,
-      freelancer: freelancerAddress,
-      amount: amount,
-      releasedAmount: BigInt(0),
-      isFunded,
-      isCompleted,
-    };
+      return {
+        projectId,
+        client: clientAddress,
+        freelancer: freelancerAddress,
+        amount: totalAmount,
+        releasedAmount: releasedAmount,
+        clientRefId: BigInt(0),
+        isFunded,
+        isCompleted,
+      };
+    } catch {
+      const projectResult = await readContract({
+        contract: escrowContract,
+        method:
+          "function projects(uint256) view returns (address client, address freelancer, uint256 amount, bool isFunded, bool isCompleted)",
+        params: [projectId],
+      });
+
+      const [clientAddress, freelancerAddress, amount, isFunded, isCompleted] = projectResult as [
+        string,
+        string,
+        bigint,
+        boolean,
+        boolean,
+      ];
+
+      return {
+        projectId,
+        client: clientAddress,
+        freelancer: freelancerAddress,
+        amount: amount,
+        releasedAmount: BigInt(0),
+        clientRefId: BigInt(0),
+        isFunded,
+        isCompleted,
+      };
+    }
   }
+}
+
+export async function getProjectIdByClientRef(
+  client: ThirdwebClient,
+  clientAddress: string,
+  clientRefId: bigint,
+): Promise<bigint> {
+  const escrowContract = getEscrowContract(client);
+  return readContract({
+    contract: escrowContract,
+    method: "function getAgreementIdByClientRef(address _client, uint256 _clientRefId) view returns (uint256)",
+    params: [clientAddress, clientRefId],
+  });
 }
 
 export async function getProjectsForClient(

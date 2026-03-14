@@ -23,6 +23,7 @@
     "multer": "^2.1.1",
     "pg": "^8.20.0",
     "razorpay": "^2.9.5",
+    "streamsearch": "^1.1.0",
     "viem": "^2.38.2"
   },
   "devDependencies": {

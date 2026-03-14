@@ -127,7 +127,7 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
                 transition={{ duration: 0.3 }}
                 className="font-jakarta font-bold text-xl tracking-[-0.04em] whitespace-nowrap"
               >
-                Nexus Escrow
+                PayCrow
               </motion.span>
             )}
           </AnimatePresence>

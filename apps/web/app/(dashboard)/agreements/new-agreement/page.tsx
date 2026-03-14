@@ -33,6 +33,7 @@ import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from
 import { sepolia } from "thirdweb/chains";
 import { prepareContractCall, sendAndConfirmTransaction } from "thirdweb";
 import { verifyTypedData } from "viem";
+import { format, isAfter, isBefore, parseISO, startOfDay } from "date-fns";
 
 import {
   ESCROW_CONTRACT_ADDRESS,
@@ -41,6 +42,7 @@ import {
   getEscrowContract,
   getPusdContract,
   getPermitNonce,
+  getProjectIdByClientRef,
   getProjectById,
   getProjectCount,
   scalePusdAmount,
@@ -88,6 +90,7 @@ interface MilestoneInput {
 interface SavedAgreement {
   id: string;
   projectId?: number | null;
+  transactionHash?: string | null;
 }
 
 export default function NewAgreementPage() {
@@ -134,6 +137,9 @@ export default function NewAgreementPage() {
     smartAccountAddress !== adminAccount?.address;
 
   const addMilestone = () => {
+    if (unallocatedFunds <= 0) {
+      return;
+    }
     setMilestones([...milestones, { title: "", amount: "", dueDate: "" }]);
   };
 
@@ -143,9 +149,100 @@ export default function NewAgreementPage() {
 
   const updateMilestone = (index: number, field: keyof MilestoneInput, value: string) => {
     const newMilestones = [...milestones];
+
+    if (field === "amount") {
+      const numericValue = Math.max(0, parseFloat(value) || 0);
+      const otherTotal = newMilestones.reduce((sum, milestone, i) => {
+        if (i === index) return sum;
+        return sum + (parseFloat(milestone.amount) || 0);
+      }, 0);
+
+      const totalAmount = parseFloat(formData.amount) || 0;
+      const cap = Math.max(0, totalAmount - otherTotal);
+      const clamped = Math.min(numericValue, cap);
+      newMilestones[index][field] = value === "" ? "" : String(clamped);
+      setMilestones(newMilestones);
+      return;
+    }
+
+    if (field === "dueDate") {
+      if (!value) {
+        newMilestones[index][field] = "";
+        setMilestones(newMilestones);
+        return;
+      }
+
+      const selected = startOfDay(parseISO(value));
+      const today = startOfDay(new Date());
+      if (isBefore(selected, today)) {
+        toast.error("Milestone due date cannot be earlier than today");
+        return;
+      }
+
+      if (formData.dueDate) {
+        const agreementDue = startOfDay(parseISO(formData.dueDate));
+        if (isAfter(selected, agreementDue)) {
+          toast.error("Milestone due date cannot be later than target completion date");
+          return;
+        }
+      }
+
+      newMilestones[index][field] = value;
+      setMilestones(newMilestones);
+      return;
+    }
+
     newMilestones[index][field] = value;
     setMilestones(newMilestones);
   };
+
+  const todayDate = useMemo(() => startOfDay(new Date()), []);
+  const todayDateString = useMemo(() => format(todayDate, "yyyy-MM-dd"), [todayDate]);
+
+  const totalAgreementAmount = useMemo(() => parseFloat(formData.amount) || 0, [formData.amount]);
+  const milestonesTotal = useMemo(
+    () => milestones.reduce((sum, milestone) => sum + (parseFloat(milestone.amount) || 0), 0),
+    [milestones],
+  );
+  const unallocatedFunds = useMemo(
+    () => Number((totalAgreementAmount - milestonesTotal).toFixed(6)),
+    [totalAgreementAmount, milestonesTotal],
+  );
+  const isMilestoneTotalExact = useMemo(
+    () => Math.abs(unallocatedFunds) < 0.000001,
+    [unallocatedFunds],
+  );
+
+  const maxAmountForMilestone = (index: number) => {
+    const otherTotal = milestones.reduce((sum, milestone, i) => {
+      if (i === index) return sum;
+      return sum + (parseFloat(milestone.amount) || 0);
+    }, 0);
+    return Math.max(0, totalAgreementAmount - otherTotal);
+  };
+
+  const isTimelineValid = useMemo(() => {
+    if (formData.dueDate) {
+      const agreementDue = startOfDay(parseISO(formData.dueDate));
+      if (isBefore(agreementDue, todayDate)) {
+        return false;
+      }
+
+      for (const milestone of milestones) {
+        if (!milestone.dueDate) continue;
+        const milestoneDate = startOfDay(parseISO(milestone.dueDate));
+        if (isBefore(milestoneDate, todayDate) || isAfter(milestoneDate, agreementDue)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }, [formData.dueDate, milestones, todayDate]);
+
+  const canSubmitDraft =
+    Boolean(formData.receiverEmail && formData.amount && formData.title && formData.dueDate) &&
+    isMilestoneTotalExact &&
+    isTimelineValid;
 
   // ─── Helper: delay ───
   const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -254,242 +351,71 @@ export default function NewAgreementPage() {
     return "";
   };
 
-  const saveAgreementMetadata = async (
-    projectId: bigint,
-    txHash: string | undefined,
-    recipientAddr: string,
-  ): Promise<SavedAgreement> => {
-    if (!session?.user?.id || !formData.receiverEmail) {
-      throw new Error("Missing user session or receiver email for agreement persistence");
-    }
-
-    const res = await fetch(`${API_BASE_URL}/agreements`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: formData.title,
-        description: formData.description,
-        amount: formData.amount ? parseFloat(formData.amount) : 0,
-        currency: "PUSD",
-        status: "FUNDED",
-        receiverEmail: formData.receiverEmail,
-        creatorId: session.user.id,
-        dueDate: formData.dueDate ? new Date(formData.dueDate) : null,
-        projectId: Number(projectId),
-        receiverAddress: recipientAddr,
-        freelancerAddress: recipientAddr,
-        transactionHash: txHash,
-        milestones: milestones.map((m) => ({
-          title: m.title,
-          amount: parseFloat(m.amount) || 0,
-          dueDate: m.dueDate ? new Date(m.dueDate) : null,
-          status: "PENDING",
-        })),
-      }),
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data?.error || "Failed to persist agreement metadata");
-    }
-
-    if (!data?.agreement?.id) {
-      throw new Error("Agreement metadata persisted but no agreement id was returned");
-    }
-
-    return data.agreement as SavedAgreement;
-  };
-
-  const resolveCreatedProjectId = async (input: {
-    expectedProjectId: bigint;
-    clientAddress: string;
-    freelancerAddress: string;
-    amount: bigint;
-  }): Promise<bigint> => {
-    const { expectedProjectId, clientAddress, freelancerAddress, amount } = input;
-    const normalizedClient = clientAddress.toLowerCase();
-    const normalizedFreelancer = freelancerAddress.toLowerCase();
-
-    const matches = (candidate: Awaited<ReturnType<typeof getProjectById>>) => {
-      return (
-        candidate.client.toLowerCase() === normalizedClient &&
-        candidate.freelancer.toLowerCase() === normalizedFreelancer &&
-        BigInt(candidate.amount) === amount
-      );
-    };
-
-    const directCandidates: bigint[] = [expectedProjectId];
-    if (expectedProjectId > BigInt(0)) {
-      directCandidates.push(expectedProjectId - BigInt(1));
-    }
-
-    for (const candidateId of directCandidates) {
-      try {
-        const candidate = await getProjectById(thirdwebClient, candidateId);
-        if (matches(candidate)) {
-          return candidateId;
-        }
-      } catch {
-        // Ignore holes/non-existing IDs.
-      }
-    }
-
-    const countAfter = await getProjectCount(thirdwebClient);
-    const lastId = countAfter > BigInt(0) ? countAfter - BigInt(1) : BigInt(0);
-    const scanWindow = BigInt(20);
-    const firstId = lastId > scanWindow ? lastId - scanWindow : BigInt(0);
-
-    for (let pid = lastId; pid >= firstId; pid--) {
-      try {
-        const candidate = await getProjectById(thirdwebClient, pid);
-        if (matches(candidate)) {
-          return pid;
-        }
-      } catch {
-        // Ignore holes/non-existing IDs.
-      }
-
-      if (pid === BigInt(0)) break;
-    }
-
-    throw new Error("Could not resolve created on-chain agreement id for metadata sync");
-  };
-
   const handleCreateAgreement = async () => {
-    if (!permitOwnerAddress) {
-      toast.error("Connect your smart wallet first");
+    if (!session?.user?.id) {
+      toast.error("Please log in before creating an agreement draft");
       return;
     }
 
-    if (activeWallet?.id === "smart" && !adminAccount) {
-      toast.error("Could not resolve your admin EOA. Reconnect wallet and try again.");
+    if (!formData.receiverEmail || !formData.amount || !formData.title || !formData.dueDate) {
+      toast.error("Receiver email, amount, title, and due date are required");
       return;
     }
 
-    const fundingAccount = adminAccount || account;
-    if (!fundingAccount) {
-      toast.error("Unable to resolve funding wallet account");
+    if (!isMilestoneTotalExact) {
+      toast.error("Milestone total must match agreement total.");
       return;
     }
 
-    const ownerAddress = fundingAccount.address as `0x${string}`;
-
-    const recipientAddr = formData.freelancerAddress.trim();
-    if (!recipientAddr || !formData.amount || !formData.title || !formData.dueDate) {
-      toast.error("Freelancer wallet, amount, title, and due date are required");
-      return;
-    }
-
-    // Validate milestones total
-    const milestonesTotal = milestones.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0);
-    if (milestonesTotal > parseFloat(formData.amount)) {
-      toast.error(`Milestones total (${milestonesTotal}) exceeds agreement amount (${formData.amount})`);
+    if (!isTimelineValid) {
+      toast.error("Please fix invalid timeline dates before saving draft");
       return;
     }
 
     try {
       setIsFunding(true);
       setTxStep("signing");
-      setTxStepDescription("Please sign the PUSD permit in your wallet…");
+      setTxStepDescription("Saving draft agreement and notifying freelancer...");
 
-      const scaledAmount = scalePusdAmount(formData.amount);
-      const permitDeadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 60); // 1 hour
-
-      const nonce = await getPermitNonce(thirdwebClient, ownerAddress);
-
-      const permitDomain = {
-        ...PERMIT_DOMAIN,
-        verifyingContract: PUSD_CONTRACT_ADDRESS as `0x${string}`,
-      } as const;
-
-      const permitTypes = {
-        Permit: [
-          { name: "owner", type: "address" },
-          { name: "spender", type: "address" },
-          { name: "value", type: "uint256" },
-          { name: "nonce", type: "uint256" },
-          { name: "deadline", type: "uint256" },
-        ],
-      } as const;
-
-      const permitMessage = {
-        owner: ownerAddress,
-        spender: ESCROW_CONTRACT_ADDRESS as `0x${string}`,
-        value: scaledAmount,
-        nonce,
-        deadline: permitDeadline,
-      } as const;
-
-      const signature = await fundingAccount.signTypedData({
-        domain: permitDomain,
-        types: permitTypes,
-        primaryType: "Permit",
-        message: permitMessage,
+      const res = await fetch(`${API_BASE_URL}/agreements/drafts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: formData.title,
+          description: formData.description,
+          amount: parseFloat(formData.amount),
+          currency: "PUSD",
+          receiverEmail: formData.receiverEmail,
+          creatorId: session.user.id,
+          dueDate: formData.dueDate,
+          milestones: milestones.map((m, index) => ({
+            title: m.title,
+            amount: parseFloat(m.amount) || 0,
+            dueDate: m.dueDate || null,
+            order: index,
+            status: "PENDING",
+          })),
+        }),
       });
 
-      const signatureValid = await verifyTypedData({
-        address: ownerAddress,
-        domain: permitDomain,
-        types: permitTypes,
-        primaryType: "Permit",
-        message: permitMessage,
-        signature,
-      });
-
-      if (!signatureValid) {
-        throw new Error("Signature verification failed locally!");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.agreement?.id) {
+        throw new Error(data?.error || "Failed to create draft agreement");
       }
-
-      const { v, r, s } = splitSignature(signature);
-      const permitV = Number(v);
-
-      setTxStep("funding");
-      setTxStepDescription("Submitting escrow funding transaction on Sepolia…");
-
-      const tx = prepareContractCall({
-        contract: escrowContract,
-        method:
-          "function createAndFundAgreement(address _freelancer, uint256 _amount, uint256 _deadline, uint8 v, bytes32 r, bytes32 s)",
-        params: [recipientAddr, scaledAmount, permitDeadline, permitV, r, s],
-      });
-
-      const nextAgreementIdBeforeTx = await getProjectCount(thirdwebClient);
-
-      const result = await sendAndConfirmTransaction({
-        account: fundingAccount,
-        transaction: tx,
-      });
-
-      const createdProjectId = await resolveCreatedProjectId({
-        expectedProjectId: nextAgreementIdBeforeTx,
-        clientAddress: ownerAddress,
-        freelancerAddress: recipientAddr,
-        amount: scaledAmount,
-      });
-
-      const savedAgreement = await saveAgreementMetadata(
-        createdProjectId,
-        result.transactionHash,
-        recipientAddr,
-      );
 
       setTxStep("verified");
-      setTxStepDescription("Agreement created & funds locked in escrow ✓");
-      toast.success("Funds locked in escrow successfully!");
+      setTxStepDescription("Draft created. Freelancer can now negotiate or approve.");
+      toast.success("Draft created and sent for freelancer review");
 
       setTimeout(() => {
-        router.push(`/agreements/${savedAgreement.id}`);
-      }, 2000);
+        router.push(`/agreements/${data.agreement.id}`);
+      }, 1200);
     } catch (error: any) {
-      console.error("Escrow funding failed:", error);
+      console.error("Draft creation failed:", error);
       setTxStep("error");
-      const message = error?.message || "Funding failed. Check wallet and signature.";
+      const message = error?.message || "Failed to create draft";
       setTxStepDescription(message);
-      if (message.toLowerCase().includes("persist") || message.toLowerCase().includes("metadata")) {
-        toast.error("On-chain funding succeeded, but off-chain sync failed. Please retry with the same details.");
-      } else {
-        toast.error("Failed to fund escrow agreement");
-      }
+      toast.error(message);
     } finally {
       setIsFunding(false);
       setTimeout(() => setTxStep("idle"), 3000);
@@ -583,9 +509,10 @@ export default function NewAgreementPage() {
                 <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("title")}`}>
                   <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Agreement Title *</Label>
                   <Input
+                    type="text"
                     placeholder="e.g., Mobile App Design"
                     value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, title: e.target.value })}
                     className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-14 text-2xl font-jakarta font-semibold placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] focus:ring-0 transition-all px-1"
                   />
                 </div>
@@ -595,7 +522,7 @@ export default function NewAgreementPage() {
                   <textarea
                     className="w-full bg-[#1A2406]/[0.02] rounded-3xl border border-[#1A2406]/5 p-6 text-base min-h-[140px] outline-none focus:ring-4 focus:ring-[#D9F24F]/10 focus:border-[#D9F24F]/30 transition-all font-medium text-[#1A2406]/70 leading-relaxed placeholder:text-[#1A2406]/10"
                     value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, description: e.target.value })}
                     placeholder="Briefly state deliverables and scope..."
                   ></textarea>
                 </div>
@@ -613,13 +540,14 @@ export default function NewAgreementPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
                 <div className="space-y-3">
-                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Service Provider Wallet *</Label>
+                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Service Provider Wallet (Optional until approval)</Label>
                   <div className="relative">
                     <Wallet className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
                     <Input
+                      type="text"
                       placeholder="0x..."
                       value={formData.freelancerAddress}
-                      onChange={(e) => setFormData({ ...formData, freelancerAddress: e.target.value })}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, freelancerAddress: e.target.value })}
                       className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-12 font-mono text-sm placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] focus:ring-0 transition-all px-1 pr-8"
                     />
                   </div>
@@ -631,7 +559,7 @@ export default function NewAgreementPage() {
                     type="email"
                     placeholder="user@example.com"
                     value={formData.receiverEmail}
-                    onChange={(e) => setFormData({ ...formData, receiverEmail: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, receiverEmail: e.target.value })}
                     className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-12 text-sm placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] focus:ring-0 transition-all px-1"
                   />
                 </div>
@@ -644,7 +572,7 @@ export default function NewAgreementPage() {
                       type="number"
                       placeholder="500"
                       value={formData.amount}
-                      onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, amount: e.target.value })}
                       className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-12 text-2xl font-jakarta font-bold placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] focus:ring-0 transition-all px-1"
                     />
                   </div>
@@ -657,7 +585,34 @@ export default function NewAgreementPage() {
                     <Input
                       type="date"
                       value={formData.dueDate}
-                      onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                      min={todayDateString}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const nextDueDate = e.target.value;
+
+                        if (!nextDueDate) {
+                          setFormData({ ...formData, dueDate: "" });
+                          return;
+                        }
+
+                        const parsedNext = startOfDay(parseISO(nextDueDate));
+                        if (isBefore(parsedNext, todayDate)) {
+                          toast.error("Target completion date cannot be earlier than today");
+                          return;
+                        }
+
+                        const latestMilestoneDate = milestones
+                          .filter((milestone) => Boolean(milestone.dueDate))
+                          .map((milestone) => startOfDay(parseISO(milestone.dueDate)))
+                          .sort((a, b) => a.getTime() - b.getTime())
+                          .at(-1);
+
+                        if (latestMilestoneDate && isBefore(parsedNext, latestMilestoneDate)) {
+                          toast.error("Target completion date cannot be earlier than an existing milestone date");
+                          return;
+                        }
+
+                        setFormData({ ...formData, dueDate: nextDueDate });
+                      }}
                       className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-12 text-sm focus:border-[#D9F24F] focus:ring-0 transition-all px-1 pr-8"
                     />
                   </div>
@@ -725,6 +680,7 @@ export default function NewAgreementPage() {
                   type="button"
                   variant="outline"
                   onClick={addMilestone}
+                  disabled={unallocatedFunds <= 0}
                   className="rounded-2xl border-[#1A2406]/10 hover:bg-[#1A2406] hover:text-[#D9F24F] transition-all font-bold text-[10px] uppercase tracking-widest px-6"
                 >
                   <Plus className="w-3.5 h-3.5 mr-2" />
@@ -750,9 +706,10 @@ export default function NewAgreementPage() {
                       <div className="md:col-span-4 space-y-2">
                         <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">Milestone Title</Label>
                         <Input
+                          type="text"
                           placeholder="Deliverable Name"
                           value={milestone.title}
-                          onChange={(e) => updateMilestone(index, "title", e.target.value)}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMilestone(index, "title", e.target.value)}
                           className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none font-medium placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all"
                         />
                       </div>
@@ -763,7 +720,9 @@ export default function NewAgreementPage() {
                             type="number"
                             placeholder="0.00"
                             value={milestone.amount}
-                            onChange={(e) => updateMilestone(index, "amount", e.target.value)}
+                            min={0}
+                            max={maxAmountForMilestone(index)}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMilestone(index, "amount", e.target.value)}
                             className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none font-bold placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all pr-8"
                           />
                           <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[#1A2406]/20">PUSD</span>
@@ -776,7 +735,9 @@ export default function NewAgreementPage() {
                           <Input
                             type="date"
                             value={milestone.dueDate}
-                            onChange={(e) => updateMilestone(index, "dueDate", e.target.value)}
+                            min={todayDateString}
+                            max={formData.dueDate || undefined}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMilestone(index, "dueDate", e.target.value)}
                             className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none text-sm placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all pr-8"
                           />
                         </div>
@@ -803,15 +764,23 @@ export default function NewAgreementPage() {
                 <div className="flex items-center gap-3">
                   <div className="text-right">
                     <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase mb-0.5">Unallocated Funds</p>
-                    <p className={`text-xl font-jakarta font-bold ${milestones.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0) > parseFloat(formData.amount || "0")
+                    <p className={`text-xl font-jakarta font-bold ${milestonesTotal > totalAgreementAmount
                         ? "text-red-500"
                         : "text-[#1A2406]"
                       }`}>
-                      {Math.max(0, parseFloat(formData.amount || "0") - milestones.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0))} <span className="text-xs text-[#1A2406]/20 font-bold uppercase ml-1">PUSD</span>
+                      {Math.max(0, unallocatedFunds)} <span className="text-xs text-[#1A2406]/20 font-bold uppercase ml-1">PUSD</span>
                     </p>
                   </div>
                 </div>
               </div>
+
+              {!isMilestoneTotalExact && (
+                <p className="text-xs font-semibold text-red-500">Milestone total must match agreement total.</p>
+              )}
+
+              {!isTimelineValid && (
+                <p className="text-xs font-semibold text-red-500">Please align milestone dates within today and target completion date.</p>
+              )}
             </motion.div>
           </div>
 
@@ -943,7 +912,7 @@ export default function NewAgreementPage() {
 
                   <div className="grid grid-cols-1 gap-2">
                     <div className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
-                      <span className="text-[8px] font-bold uppercase tracking-widest text-white/20">Vault</span>
+                      <span className="text-[8px] font-bold uppercase tracking-widest text-white/20">Wallet (Optional)</span>
                       <p className="text-[10px] font-mono font-bold text-[#D9F24F]">
                         {smartAccountAddress ? shortAddress(smartAccountAddress) : "OFF"}
                       </p>
@@ -959,13 +928,13 @@ export default function NewAgreementPage() {
 
                   <Button
                     className="w-full h-12 rounded-2xl bg-[#D9F24F] text-[#1A2406] font-jakarta font-bold text-xs hover:bg-[#c4db47] shadow-lg shadow-[#D9F24F]/10 transition-all active:scale-95 disabled:opacity-20"
-                    disabled={isFunding || !permitOwnerAddress}
+                    disabled={isFunding || !canSubmitDraft}
                     onClick={handleCreateAgreement}
                   >
                     {isFunding ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      "Authorize & Lock Funds"
+                      "Create Draft & Send"
                     )}
                   </Button>
                 </CardContent>
