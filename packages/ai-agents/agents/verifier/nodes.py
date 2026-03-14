@@ -19,9 +19,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fetchers import fetch_content
-from llm import run_analysis, run_scoring, run_vision_analysis
-from state import VerifierState
+from .fetchers import fetch_content
+from .llm import run_analysis, run_scoring, run_vision_analysis
+from .state import VerifierState
 
 
 # ─────────────────────────────────────────────────────────────────────────────
