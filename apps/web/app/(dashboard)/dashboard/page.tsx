@@ -1,10 +1,19 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Wallet, CheckCircle2, Coins, FileText, Loader2, LogOut } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  Wallet,
+  CheckCircle2,
+  Coins,
+  FileText, Loader2, LogOut,
+  ArrowRight,
+  TrendingUp,
+  Shield,
+  Clock,
+  Plus,
+  LogOut,
+} from "lucide-react";
 import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -65,6 +74,14 @@ export default function DashboardPage() {
   const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
   const [connectedWalletId, setConnectedWalletId] = useState<string>("w1");
+  const { data: session } = authClient.useSession();
+  const fullName = session?.user?.name ?? "User";
+  const userEmail = session?.user?.email ?? "";
+
+  const handleLogout = async () => {
+    await authClient.signOut();
+    window.location.href = "/";
+  };
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
   const [wallets, setWallets] = useState<DemoWallet[]>([]);
@@ -133,30 +150,68 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in zoom-in duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="max-w-6xl mx-auto space-y-12"
+    >
+      {/* ── Welcome Header ── */}
+      <motion.div variants={itemVariants} className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-gray-900">Welcome, {session?.user?.name || "User"}!</h1>
-          <p className="text-gray-500 mt-2">{session?.user?.email}</p>
+          <h1 className="font-jakarta text-4xl font-bold tracking-tight text-[#1A2406]">
+            Welcome, {fullName}!
+          </h1>
+          <p className="font-inter text-gray-400 mt-1 text-sm">
+            {userEmail}
+          </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Link href="/buy-crypto">
-            <Button className="shrink-0 bg-blue-600 hover:bg-blue-700">
-              <Coins className="w-4 h-4 mr-2" />
+            <button className="flex items-center gap-2 bg-[#2563EB] text-white font-inter text-xs font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity">
+              <Coins className="w-4 h-4" />
               Buy Stablecoins
-            </Button>
+            </button>
           </Link>
           <Link href="/agreements">
-            <Button variant="default" className="shrink-0 bg-purple-600 hover:bg-purple-700">
-              <FileText className="w-4 h-4 mr-2" />
+            <button className="flex items-center gap-2 bg-[#9333EA] text-white font-inter text-xs font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity">
+              <FileText className="w-4 h-4" />
               Agreements
-            </Button>
+            </button>
           </Link>
-          <Button variant="outline" className="shrink-0 group">
-            <Wallet className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
+          <button className="flex items-center gap-2 bg-white text-[#1A2406] border border-gray-200 font-inter text-xs font-semibold px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors">
+            <Plus className="w-4 h-4" />
             Connect New Wallet
-          </Button>
-          <Button 
+          </button>
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 bg-[#DC2626] text-white font-inter text-xs font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        </div>
+      </motion.div>
+
+      {/* ── Purchase Summary ── */}
+      <motion.div 
+        variants={itemVariants} 
+        className="bg-[#F0F7FF]/50 border border-[#D9EBFF] rounded-3xl p-8"
+      >
+        <h2 className="font-jakarta text-lg font-semibold text-[#1E40AF] mb-6">Purchase Summary</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+          <div>
+            <p className="font-inter text-xs font-medium text-gray-500 mb-2">Total Stablecoins Purchased</p>
+            <p className="font-jakarta text-2xl font-bold text-[#16A34A]">₹200.00</p>
+          </div>
+          <div>
+            <p className="font-inter text-xs font-medium text-gray-500 mb-2">Successful Transactions</p>
+            <p className="font-jakarta text-2xl font-bold text-[#2563EB]">1</p>
+          </div>
+          <div>
+            <p className="font-inter text-xs font-medium text-gray-500 mb-2">Pending Transactions</p>
+            <p className="font-jakarta text-2xl font-bold text-[#CA8A04]">6</p>
+            <Button 
             variant="destructive" 
             className="shrink-0"
             onClick={handleLogout}
@@ -165,7 +220,14 @@ export default function DashboardPage() {
             Logout
           </Button>
         </div>
-      </div>
+        </div>
+      </motion.div>
+
+      {/* ── Wallets section ── */}
+      <motion.div variants={itemVariants}>
+        <h2 className="font-jakarta text-2xl font-bold tracking-tight text-[#1A2406] mb-8">
+          Your Connected Wallets
+        </h2>
 
       {purchases.length > 0 && (
         <Card className="bg-blue-50 border-blue-200">
@@ -239,57 +301,51 @@ export default function DashboardPage() {
                   </div>
                 </CardContent>
 
-                <CardFooter className="pt-2">
-                  {!isConnected ? (
-                    <Button 
-                      variant="outline" 
-                      className="w-full hover:bg-primary hover:text-white transition-colors"
-                      onClick={() => setConnectedWalletId(wallet.id)}
-                    >
-                      Switch to this Wallet
-                    </Button>
-                  ) : (
-                    <Button 
-                      variant="secondary" 
-                      className="w-full bg-gray-100 text-gray-500 cursor-default"
-                    >
-                      Currently Active
-                    </Button>
-                  )}
-                </CardFooter>
-              </Card>
+                {/* CTA */}
+                {!isConnected ? (
+                  <button
+                    onClick={() => setConnectedWalletId(wallet.id)}
+                    className="w-full font-inter text-xs font-bold py-3.5 rounded-xl border border-gray-200 hover:bg-gray-50 transition-all"
+                  >
+                    Switch to this Wallet
+                  </button>
+                ) : (
+                  <button className="w-full font-inter text-xs font-bold py-3.5 rounded-xl bg-gray-50 text-gray-400 cursor-default">
+                    Currently Active
+                  </button>
+                )}
+              </motion.div>
             );
           })}
         </div>
-      </div>
+      </motion.div>
 
-      {isLoadingPurchases ? (
-        <div className="flex justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin" />
+      {/* ── Purchase History ── */}
+      <motion.div variants={itemVariants} className="space-y-6">
+        <h2 className="font-jakarta text-2xl font-bold tracking-tight text-[#1A2406]">
+          Purchase History
+        </h2>
+        <div className="space-y-4">
+          {purchaseHistory.map((item) => (
+            <div key={item.id} className="bg-white border border-gray-100 p-6 rounded-[20px] flex items-center justify-between shadow-sm">
+              <div className="space-y-1">
+                <p className="font-jakarta font-bold text-[#1A2406]">₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <span>Order ID: {item.id}</span>
+                </div>
+                <p className="text-[10px] text-gray-300">{item.date}</p>
+              </div>
+              <div>
+                <span className={`text-[10px] font-bold px-3 py-1 rounded-full ${
+                  item.status === "SUCCESS" ? "bg-green-50 text-green-600" : "bg-yellow-50 text-yellow-600"
+                }`}>
+                  {item.status}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
-      ) : purchases.length > 0 ? (
-        <div>
-          <h2 className="text-2xl font-bold mb-4">Purchase History</h2>
-          <div className="space-y-3">
-            {purchases.map((purchase) => (
-              <Card key={purchase.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <p className="font-semibold">₹{purchase.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                      <p className="text-sm text-gray-500">Order ID: {purchase.razorpayOrderId.slice(0, 15)}...</p>
-                      <p className="text-sm text-gray-400">{new Date(purchase.createdAt).toLocaleString()}</p>
-                    </div>
-                    <Badge className={getStatusColor(purchase.status)}>
-                      {purchase.status}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

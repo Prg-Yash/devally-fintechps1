@@ -4,6 +4,12 @@ import * as dotenv from 'dotenv';
 dotenv.config({ path: '../../apps/web/.env' });
 import { defineConfig } from "prisma/config";
 
+try {
+  loadEnvFile(resolve(__dirname, "../../.env"));
+} catch {
+  // fallback: try local .env if root one not found
+}
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
