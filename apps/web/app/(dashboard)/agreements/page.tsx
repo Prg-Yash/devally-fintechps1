@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { AuthClient } from "@/lib/auth-client";
+import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
 import { FileText, Plus, Loader2 } from "lucide-react";
 
@@ -35,6 +35,7 @@ interface Milestone {
 }
 
 export default function AgreementsPage() {
+  const { data: session } = authClient.useSession();
   const [incomingAgreements, setIncomingAgreements] = useState<Agreement[]>([]);
   const [outgoingAgreements, setOutgoingAgreements] = useState<Agreement[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -80,8 +81,13 @@ export default function AgreementsPage() {
   }, []);
 
   const handleCreateAgreement = async () => {
-    if (!formData.title || !formData.amount || !formData.receiverEmail) {
-      toast.error("Please fill in all required fields");
+    if (!session?.user?.id) {
+      toast.error("You must be logged in to create an agreement");
+      return;
+    }
+
+    if (!formData.receiverEmail) {
+      toast.error("Receiver email is required");
       return;
     }
 
@@ -92,7 +98,8 @@ export default function AgreementsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
-          amount: parseFloat(formData.amount),
+          creatorId: session.user.id,
+          amount: formData.amount ? parseFloat(formData.amount) : 0,
           milestones: milestonesData
             .filter((m) => m.title && m.amount)
             .map((m) => ({

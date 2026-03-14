@@ -3,13 +3,19 @@ import prisma from '../config/prisma';
 
 export const createAgreement = async (req: Request, res: Response) => {
   try {
-    const { title, description, amount, currency, receiverEmail, milestones } = req.body;
-    const creatorId = (req as any).userId;
+    const { title, description, amount, currency, receiverEmail, creatorId, milestones } = req.body;
 
     // Validate required fields
-    if (!title || !amount || !receiverEmail || !creatorId) {
+    if (!creatorId) {
       return res.status(400).json({
-        error: 'title, amount, receiverEmail, and userId (from auth) are required',
+        error: 'Creator ID is required',
+      });
+    }
+
+    // Validate receiver email exists
+    if (!receiverEmail) {
+      return res.status(400).json({
+        error: 'Receiver email is required',
       });
     }
 
@@ -19,20 +25,15 @@ export const createAgreement = async (req: Request, res: Response) => {
     });
 
     if (!receiver) {
-      return res.status(404).json({ error: 'Receiver user not found with the provided email' });
+      return res.status(404).json({ error: 'User not found with the provided email' });
     }
 
-    // Prevent creating agreement with self
-    if (creatorId === receiver.id) {
-      return res.status(400).json({ error: 'Cannot create agreement with yourself' });
-    }
-
-    // Create agreement with milestones
+    // Create agreement with milestones (title and amount are optional)
     const agreement = await prisma.agreement.create({
       data: {
-        title,
+        title: title || 'Untitled Agreement',
         description,
-        amount,
+        amount: amount || 0,
         currency: currency || 'USDC',
         creatorId,
         receiverId: receiver.id,
@@ -122,7 +123,7 @@ export const getOutgoingAgreements = async (req: Request, res: Response) => {
 
 export const getAgreementById = async (req: Request, res: Response) => {
   try {
-    const { agreementId } = req.params;
+    const agreementId = Array.isArray(req.params.agreementId) ? req.params.agreementId[0] : req.params.agreementId;
     const userId = (req as any).userId;
 
     if (!agreementId) {
@@ -159,7 +160,7 @@ export const getAgreementById = async (req: Request, res: Response) => {
 
 export const updateAgreementStatus = async (req: Request, res: Response) => {
   try {
-    const { agreementId } = req.params;
+    const agreementId = Array.isArray(req.params.agreementId) ? req.params.agreementId[0] : req.params.agreementId;
     const { status } = req.body;
     const userId = (req as any).userId;
 

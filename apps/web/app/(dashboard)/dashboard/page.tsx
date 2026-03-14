@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Wallet,
   CheckCircle2,
   Coins,
-  FileText,
+  FileText, Loader2, LogOut,
   ArrowRight,
   TrendingUp,
   Shield,
@@ -16,65 +16,63 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
-// ─── Demo data ────────────────────────────────────────────────────────────────
-const demoWallets = [
-  {
-    id: "w1",
-    name: "Main Trading Wallet",
-    address: "0x7a59 ... 3f92",
-    balance: 14500.50,
-    currency: "USDC",
-    type: "MetaMask",
-    connected: true,
-  },
-  {
-    id: "w2",
-    name: "Savings / Escrow",
-    address: "0x3b12 ... 9a41",
-    balance: 50000.00,
-    currency: "USDC",
-    type: "Coinbase Wallet",
-    connected: false,
-  },
-  {
-    id: "w3",
-    name: "Freelance Earnings",
-    address: "0x9c88 ... 1d05",
-    balance: 320.75,
-    currency: "USDT",
-    type: "Phantom",
-    connected: false,
-  },
-];
+interface Purchase {
+  id: string;
+  amount: number;
+  status: string;
+  createdAt: string;
+  razorpayOrderId: string;
+}
 
-const purchaseHistory = [
-  {
-    id: "order_SR4dUTl78..",
-    amount: 200.00,
-    date: "3/14/2026, 4:02:15 PM",
-    status: "SUCCESS",
-  },
-  {
-    id: "order_SR4dUTl79..",
-    amount: 500.00,
-    date: "3/14/2026, 4:05:00 PM",
-    status: "PENDING",
-  }
-];
+interface DemoWallet {
+  id: string;
+  name: string;
+  address: string;
+  balance: number;
+  currency: string;
+  type: string;
+}
 
-// ─── Animation variants ────────────────────────────────────────────────────────
-const containerVariants = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.07 } },
-};
-const itemVariants = {
-  hidden: { opacity: 0, y: 18 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const } },
+// Enhanced demo wallets with user-specific calculation
+const generateWalletsForUser = (userId: string): DemoWallet[] => {
+  // Use userId to seed consistent but unique data per user
+  const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const multiplier = 1 + (hash % 5);
+  
+  return [
+    {
+      id: "w1",
+      name: "Main Trading Wallet",
+      address: "0x7a59...3f92",
+      balance: 14500.50 * multiplier,
+      currency: "USDC",
+      type: "MetaMask",
+    },
+    {
+      id: "w2",
+      name: "Savings / Escrow",
+      address: "0x3b12...9a41",
+      balance: 50000.00 * multiplier,
+      currency: "USDC",
+      type: "Coinbase Wallet",
+    },
+    {
+      id: "w3",
+      name: "Freelance Earnings",
+      address: "0x9c88...1d05",
+      balance: 320.75 * multiplier,
+      currency: "USDT",
+      type: "Phantom",
+    }
+  ];
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
+  const { data: session, isPending } = authClient.useSession();
+  const router = useRouter();
   const [connectedWalletId, setConnectedWalletId] = useState<string>("w1");
   const { data: session } = authClient.useSession();
   const fullName = session?.user?.name ?? "User";
@@ -84,6 +82,72 @@ export default function DashboardPage() {
     await authClient.signOut();
     window.location.href = "/";
   };
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
+  const [wallets, setWallets] = useState<DemoWallet[]>([]);
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      setWallets(generateWalletsForUser(session.user.id));
+      fetchPurchases(session.user.id);
+    }
+  }, [session?.user?.id]);
+
+  const fetchPurchases = async (userId: string) => {
+    try {
+      setIsLoadingPurchases(true);
+      const response = await fetch(`http://localhost:5000/razorpay/purchases?userId=${userId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setPurchases(data.purchases || []);
+      }
+    } catch (error) {
+      console.error('Error fetching purchases:', error);
+    } finally {
+      setIsLoadingPurchases(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status.toUpperCase()) {
+      case "SUCCESS":
+      case "COMPLETED":
+        return "bg-green-100 text-green-800";
+      case "PENDING":
+        return "bg-yellow-100 text-yellow-800";
+      case "FAILED":
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  };
+
+  const totalPurchased = purchases
+    .filter((p) => p.status === "SUCCESS")
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const handleLogout = async () => {
+    try {
+      await authClient.signOut({
+        fetchOptions: {
+          onSuccess: () => {
+            router.push("/login");
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+      toast.error("Failed to logout");
+    }
+  };
+
+  if (isPending) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -147,7 +211,15 @@ export default function DashboardPage() {
           <div>
             <p className="font-inter text-xs font-medium text-gray-500 mb-2">Pending Transactions</p>
             <p className="font-jakarta text-2xl font-bold text-[#CA8A04]">6</p>
-          </div>
+            <Button 
+            variant="destructive" 
+            className="shrink-0"
+            onClick={handleLogout}
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Logout
+          </Button>
+        </div>
         </div>
       </motion.div>
 
@@ -157,49 +229,77 @@ export default function DashboardPage() {
           Your Connected Wallets
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {demoWallets.map((wallet) => {
-            const isConnected = connectedWalletId === wallet.id;
-            return (
-              <motion.div
-                key={wallet.id}
-                whileHover={{ y: -2 }}
-                className={`relative rounded-[24px] p-8 border transition-all duration-300 bg-white
-                  ${isConnected
-                    ? "border-[#1A2406] border-2 shadow-lg"
-                    : "border-gray-100 shadow-sm"
-                  }`}
-              >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-8">
-                  <div>
-                    <h3 className="font-jakarta font-bold text-[#1A2406] text-lg">
-                      {wallet.name}
-                    </h3>
-                    <p className="font-inter text-xs text-gray-400 mt-1">{wallet.address}</p>
-                  </div>
-                  {isConnected ? (
-                    <span className="flex items-center gap-1 text-[10px] font-inter font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded-md border border-gray-200">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Connected
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-inter font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
-                      {wallet.type}
-                    </span>
-                  )}
-                </div>
+      {purchases.length > 0 && (
+        <Card className="bg-blue-50 border-blue-200">
+          <CardHeader>
+            <CardTitle className="text-lg">Purchase Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-gray-600">Total Stablecoins Purchased</p>
+                <p className="text-2xl font-bold text-green-600">₹{totalPurchased.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Successful Transactions</p>
+                <p className="text-2xl font-bold text-blue-600">{purchases.filter(p => p.status === "SUCCESS").length}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Pending Transactions</p>
+                <p className="text-2xl font-bold text-yellow-600">{purchases.filter(p => p.status === "PENDING").length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-                {/* Balance */}
-                <div className="mb-8">
-                  <p className="font-inter text-xs text-gray-400 mb-2">Available Balance</p>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="font-jakarta text-3xl font-bold text-[#1A2406]">
-                      ₹{wallet.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                    <span className="font-inter text-xs text-gray-400 font-semibold">{wallet.currency}</span>
+      <div>
+        <h2 className="text-2xl font-bold mb-4">Your Connected Wallets</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {wallets.map((wallet) => {
+            const isConnected = connectedWalletId === wallet.id;
+
+            return (
+              <Card 
+                key={wallet.id} 
+                className={`relative overflow-hidden transition-all duration-300 hover:shadow-lg ${
+                  isConnected ? "border-primary ring-1 ring-primary/20 shadow-primary/10" : "border-gray-200"
+                }`}
+              >
+                {isConnected && (
+                  <div className="absolute top-0 left-0 w-full h-1 bg-primary" />
+                )}
+                
+                <CardHeader className="pb-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <CardTitle className="text-lg">{wallet.name}</CardTitle>
+                      <CardDescription className="font-mono mt-1">{wallet.address}</CardDescription>
+                    </div>
+                    {isConnected ? (
+                      <Badge variant="default" className="bg-primary/10 text-primary hover:bg-primary/20 border-primary/20">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                        Connected
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-gray-500">
+                        {wallet.type}
+                      </Badge>
+                    )}
                   </div>
-                </div>
+                </CardHeader>
+
+                <CardContent>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-500 mb-1">Available Balance</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-bold text-gray-900">
+                        ₹{wallet.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-sm font-semibold text-gray-500">{wallet.currency}</span>
+                    </div>
+                  </div>
+                </CardContent>
 
                 {/* CTA */}
                 {!isConnected ? (
