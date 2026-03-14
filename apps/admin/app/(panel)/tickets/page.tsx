@@ -24,6 +24,38 @@ interface TicketsResponse {
   tickets: TicketRow[];
 }
 
+interface AgreementDetails {
+  id: string;
+  title: string;
+  description?: string | null;
+  amount: number;
+  currency: string;
+  status: string;
+  projectId?: number | null;
+  receiverAddress?: string | null;
+  transactionHash?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  creator: { id: string; name: string; email: string };
+  receiver: { id: string; name: string; email: string };
+  milestones: Array<{
+    id: string;
+    title: string;
+    description?: string | null;
+    amount: number;
+    status: string;
+    dueDate?: string | null;
+    createdAt: string;
+  }>;
+  tickets: Array<{
+    id: string;
+    title: string;
+    status: string;
+    severity: string;
+    createdAt: string;
+  }>;
+}
+
 const summarizeError = (error: unknown) => (error instanceof Error ? error.message : "Unexpected error");
 const STATUS_OPTIONS = ["OPEN", "IN_REVIEW", "RESOLVED", "CLOSED", "REJECTED"] as const;
 const SEVERITY_OPTIONS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
@@ -36,6 +68,9 @@ export default function TicketsPage() {
   const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
   const [draftStatusByTicket, setDraftStatusByTicket] = useState<Record<string, string>>({});
   const [draftSeverityByTicket, setDraftSeverityByTicket] = useState<Record<string, string>>({});
+  const [agreementDetails, setAgreementDetails] = useState<AgreementDetails | null>(null);
+  const [isAgreementLoading, setIsAgreementLoading] = useState(false);
+  const [agreementError, setAgreementError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadTickets = async () => {
@@ -72,6 +107,39 @@ export default function TicketsPage() {
 
     loadTickets();
   }, []);
+
+  useEffect(() => {
+    const agreementId = selectedTicket?.agreement?.id;
+
+    if (!agreementId) {
+      setAgreementDetails(null);
+      setAgreementError(null);
+      return;
+    }
+
+    const loadAgreementDetails = async () => {
+      try {
+        setIsAgreementLoading(true);
+        setAgreementError(null);
+
+        const response = await fetch(`${API_BASE_URL}/admin/agreements/${agreementId}`, { cache: "no-store" });
+        const payload = (await response.json()) as { error?: string; agreement?: AgreementDetails };
+
+        if (!response.ok || !payload.agreement) {
+          throw new Error(payload.error || "Failed to fetch agreement details");
+        }
+
+        setAgreementDetails(payload.agreement);
+      } catch (fetchError: unknown) {
+        setAgreementDetails(null);
+        setAgreementError(summarizeError(fetchError));
+      } finally {
+        setIsAgreementLoading(false);
+      }
+    };
+
+    loadAgreementDetails();
+  }, [selectedTicket]);
 
   const handleUpdateTicket = async (ticketId: string) => {
     const status = draftStatusByTicket[ticketId];
@@ -299,17 +367,110 @@ export default function TicketsPage() {
             {selectedTicket.agreement && (
               <div className="rounded-xl border border-[#d9d0bf] bg-[#f9fdf3] p-4 text-[#122016]">
                 <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Context: Linked Agreement</h4>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold">{selectedTicket.agreement.title}</p>
-                    <p className="text-[10px] text-[#526157] font-mono">{selectedTicket.agreement.id}</p>
+                {isAgreementLoading ? (
+                  <p className="text-sm text-[#526157]">Loading agreement details...</p>
+                ) : agreementError ? (
+                  <p className="text-sm text-[#8f1f2f]">{agreementError}</p>
+                ) : agreementDetails ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                        <p className="text-[10px] font-bold uppercase text-[#526157]">Agreement</p>
+                        <p className="mt-1 text-sm font-bold">{agreementDetails.title}</p>
+                        <p className="text-[10px] text-[#526157] font-mono">{agreementDetails.id}</p>
+                        <p className="mt-2 text-xs text-[#526157]">
+                          Status: <span className="font-semibold text-[#122016]">{agreementDetails.status}</span>
+                        </p>
+                        <p className="text-xs text-[#526157]">
+                          Amount: <span className="font-semibold text-[#122016]">{agreementDetails.amount.toLocaleString("en-IN")} {agreementDetails.currency}</span>
+                        </p>
+                        <p className="text-xs text-[#526157]">Created: {formatDate(agreementDetails.createdAt)}</p>
+                      </div>
+
+                      <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                        <p className="text-[10px] font-bold uppercase text-[#526157]">Parties</p>
+                        <p className="mt-1 text-xs text-[#526157]">Creator</p>
+                        <p className="text-sm font-medium">{agreementDetails.creator.name || "Anonymous"}</p>
+                        <p className="text-xs text-[#526157]">{agreementDetails.creator.email}</p>
+                        <p className="mt-2 text-xs text-[#526157]">Receiver</p>
+                        <p className="text-sm font-medium">{agreementDetails.receiver.name || "Anonymous"}</p>
+                        <p className="text-xs text-[#526157]">{agreementDetails.receiver.email}</p>
+                      </div>
+                    </div>
+
+                    {agreementDetails.description ? (
+                      <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                        <p className="text-[10px] font-bold uppercase text-[#526157]">Description</p>
+                        <p className="mt-1 text-sm text-[#122016]">{agreementDetails.description}</p>
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                      <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                        <p className="text-[10px] font-bold uppercase text-[#526157]">Project ID</p>
+                        <p className="mt-1 text-sm font-mono text-[#122016]">{agreementDetails.projectId ?? "-"}</p>
+                      </div>
+                      <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                        <p className="text-[10px] font-bold uppercase text-[#526157]">Receiver Address</p>
+                        <p className="mt-1 text-xs font-mono text-[#122016] break-all">{agreementDetails.receiverAddress ?? "-"}</p>
+                      </div>
+                      <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                        <p className="text-[10px] font-bold uppercase text-[#526157]">Tx Hash</p>
+                        <p className="mt-1 text-xs font-mono text-[#122016] break-all">{agreementDetails.transactionHash ?? "-"}</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                      <p className="text-[10px] font-bold uppercase text-[#526157] mb-2">Milestones ({agreementDetails.milestones.length})</p>
+                      {agreementDetails.milestones.length === 0 ? (
+                        <p className="text-xs text-[#526157]">No milestones available.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {agreementDetails.milestones.map((milestone, index) => (
+                            <div key={milestone.id} className="rounded-md border border-[#ece6d9] bg-[#fcfbf8] p-2">
+                              <p className="text-xs font-semibold text-[#122016]">{index + 1}. {milestone.title}</p>
+                              {milestone.description ? <p className="text-xs text-[#526157]">{milestone.description}</p> : null}
+                              <p className="text-[11px] text-[#526157]">
+                                Amount: {milestone.amount.toLocaleString("en-IN")} {agreementDetails.currency} | Status: {milestone.status}
+                                {milestone.dueDate ? ` | Due: ${formatDate(milestone.dueDate)}` : ""}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+                      <p className="text-[10px] font-bold uppercase text-[#526157] mb-2">Related Tickets ({agreementDetails.tickets.length})</p>
+                      {agreementDetails.tickets.length === 0 ? (
+                        <p className="text-xs text-[#526157]">No other tickets are linked to this agreement.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {agreementDetails.tickets.map((agreementTicket) => (
+                            <div key={agreementTicket.id} className="rounded-md border border-[#ece6d9] bg-[#fcfbf8] p-2">
+                              <p className="text-xs font-semibold text-[#122016]">{agreementTicket.title}</p>
+                              <p className="text-[11px] text-[#526157]">
+                                {agreementTicket.status} | {agreementTicket.severity} | {formatDate(agreementTicket.createdAt)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="px-2 py-1 rounded border border-[#d9d0bf] bg-white text-[10px] font-bold uppercase">
-                      {selectedTicket.agreement.status}
-                    </span>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold">{selectedTicket.agreement.title}</p>
+                      <p className="text-[10px] text-[#526157] font-mono">{selectedTicket.agreement.id}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="px-2 py-1 rounded border border-[#d9d0bf] bg-white text-[10px] font-bold uppercase">
+                        {selectedTicket.agreement.status}
+                      </span>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 

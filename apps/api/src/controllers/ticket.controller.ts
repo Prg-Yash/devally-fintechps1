@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../config/prisma';
+import { notifyUser } from '../config/notification-service';
 
 const ALLOWED_TICKET_STATUSES = ['OPEN', 'IN_REVIEW', 'RESOLVED', 'CLOSED', 'REJECTED'];
 const ALLOWED_TICKET_SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
@@ -88,6 +89,27 @@ export const createTicket = async (req: Request, res: Response) => {
         agreement: { select: { id: true, title: true, status: true } },
       },
     });
+
+    await Promise.all([
+      notifyUser({
+        userId: ticket.raisedBy.id,
+        title: 'Ticket created',
+        message: `Your ticket "${ticket.title}" has been submitted with ${ticket.severity} severity.`,
+        type: 'TICKET',
+        entityType: 'ticket',
+        entityId: ticket.id,
+        emailSubject: 'Devally: Ticket submitted',
+      }),
+      notifyUser({
+        userId: ticket.againstUser.id,
+        title: 'Ticket filed against you',
+        message: `A dispute ticket "${ticket.title}" was raised and requires your attention.`,
+        type: 'TICKET',
+        entityType: 'ticket',
+        entityId: ticket.id,
+        emailSubject: 'Devally: New dispute ticket',
+      }),
+    ]);
 
     return res.status(201).json({ message: 'Ticket raised successfully', ticket });
   } catch (error: any) {
