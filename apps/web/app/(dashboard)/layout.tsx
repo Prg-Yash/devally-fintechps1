@@ -249,17 +249,53 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter()
   const [isChecking, setIsChecking] = useState(true)
   const [collapsed, setCollapsed] = useState(false)
+  const [banRedirecting, setBanRedirecting] = useState(false)
 
   useEffect(() => {
-    if (!isPending) {
+    let cancelled = false
+
+    const validateAccess = async () => {
+      if (isPending) {
+        return
+      }
+
       if (session == null) {
-        toast.error('You must be logged in to access the dashboard.')
-        router.push('/login')
-      } else {
+        if (!banRedirecting) {
+          toast.error('You must be logged in to access the dashboard.')
+          router.push('/login')
+        }
+        if (!cancelled) {
+          setIsChecking(false)
+        }
+        return
+      }
+
+      try {
+        const response = await fetch('/api/user/access-status', { cache: 'no-store' })
+        const data = await response.json()
+
+        if (response.ok && data?.isBanned) {
+          setBanRedirecting(true)
+          toast.error('Your account has been banned. Please contact admin support.')
+          await authClient.signOut()
+          window.location.href = '/banned'
+          return
+        }
+      } catch (error) {
+        console.error('Failed to validate account status:', error)
+      }
+
+      if (!cancelled) {
         setIsChecking(false)
       }
     }
-  }, [session, isPending, router])
+
+    validateAccess()
+
+    return () => {
+      cancelled = true
+    }
+  }, [session, isPending, router, banRedirecting])
 
   if (isPending || isChecking) return <Loading />
 
