@@ -1,13 +1,195 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider        = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions         Session[]
+  accounts         Account[]
+  twoFactorEnabled Boolean?    @default(false)
+  twofactors       TwoFactor[]
+  purchases        Purchase[]
+  passkeys         Passkey[]
+
+  createdAgreements  Agreement[] @relation("Creator")
+  receivedAgreements Agreement[] @relation("Receiver")
+  raisedTickets      Ticket[]    @relation("RaisedTickets")
+  ticketsAgainstMe   Ticket[]    @relation("TicketsAgainstUser")
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model TwoFactor {
+  id          String @id
+  secret      String
+  backupCodes String
+  userId      String
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([secret])
+  @@index([userId])
+  @@map("twoFactor")
+}
+
+model Passkey {
+  id           String    @id
+  name         String?
+  publicKey    String
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialID String
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime?
+  aaguid       String?
+
+  @@index([userId])
+  @@index([credentialID])
+  @@map("passkey")
+}
+
+model Purchase {
+  id                String   @id @default(cuid())
+  userId            String
+  amount            Float
+  razorpayOrderId   String   @unique
+  razorpayPaymentId String?  @unique
+  status            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("purchase")
+}
+
+model Agreement {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  amount        Float
+  status        String   @default("PENDING")
+  currency      String   @default("USDC")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  creatorId String
+  creator   User   @relation("Creator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  receiverId String
+  receiver   User   @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  milestones Milestone[]
+  tickets    Ticket[]
+
+  @@index([creatorId])
+  @@index([receiverId])
+  @@map("agreement")
+}
+
+model Ticket {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  reason      String
+  status      String   @default("OPEN")
+  evidenceUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  raisedById String
+  raisedBy   User   @relation("RaisedTickets", fields: [raisedById], references: [id], onDelete: Cascade)
+
+  againstUserId String
+  againstUser   User   @relation("TicketsAgainstUser", fields: [againstUserId], references: [id], onDelete: Cascade)
+
+  agreementId String?
+  agreement   Agreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+
+  @@index([raisedById])
+  @@index([againstUserId])
+  @@index([agreementId])
+  @@index([status])
+  @@map("ticket")
+}
+
+model Milestone {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  amount        Float
+  status        String   @default("PENDING")
+  dueDate       DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  agreementId String
+  agreement   Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@map("milestone")
 }
