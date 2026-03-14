@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -137,6 +137,11 @@ export default function AgreementsPage() {
   const [releaseAmount, setReleaseAmount] = useState("");
   const [isReleasing, setIsReleasing] = useState(false);
   const [activeTab, setActiveTab] = useState<"incoming" | "outgoing">("incoming");
+  const hasLoadedAgreementsRef = useRef(false);
+  const lastFetchedUserIdRef = useRef<string | null>(null);
+  const agreementsFetchInFlightRef = useRef(false);
+  const projectsFetchInFlightRef = useRef(false);
+  const lastFetchedProjectsAddressRef = useRef<string | null>(null);
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
   const pusdContract = useMemo(() => getPusdContract(thirdwebClient), []);
@@ -150,49 +155,106 @@ export default function AgreementsPage() {
 
   /* ─── Data Fetching ──────────────────────────────────────────────── */
 
-  const fetchAgreements = async () => {
-    if (!session?.user?.id) return;
+  const fetchAgreements = async (
+    options: { silent?: boolean; force?: boolean } = {},
+  ) => {
+    const { silent = false, force = false } = options;
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    if (agreementsFetchInFlightRef.current) return;
+    if (!force && hasLoadedAgreementsRef.current && lastFetchedUserIdRef.current === userId) {
+      return;
+    }
+
     try {
-      setIsLoading(true);
+      agreementsFetchInFlightRef.current = true;
+      if (!silent) {
+        setIsLoading(true);
+      }
+
       const [incomingRes, outgoingRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/agreements/incoming?userId=${session.user.id}`),
-        fetch(`${API_BASE_URL}/agreements/outgoing?userId=${session.user.id}`),
+        fetch(`${API_BASE_URL}/agreements/incoming?userId=${userId}`),
+        fetch(`${API_BASE_URL}/agreements/outgoing?userId=${userId}`),
       ]);
+
+      let nextIncoming: Agreement[] | null = null;
+      let nextOutgoing: Agreement[] | null = null;
+
       if (incomingRes.ok) {
         const data = await incomingRes.json();
-        setIncomingAgreements(data.agreements || []);
+        nextIncoming = Array.isArray(data?.agreements) ? data.agreements : [];
+      } else {
+        console.error("Incoming agreements fetch failed", incomingRes.status);
       }
+
       if (outgoingRes.ok) {
         const data = await outgoingRes.json();
-        setOutgoingAgreements(data.agreements || []);
+        nextOutgoing = Array.isArray(data?.agreements) ? data.agreements : [];
+      } else {
+        console.error("Outgoing agreements fetch failed", outgoingRes.status);
+      }
+
+      if (nextIncoming !== null) {
+        setIncomingAgreements(nextIncoming);
+      }
+      if (nextOutgoing !== null) {
+        setOutgoingAgreements(nextOutgoing);
+      }
+
+      if (nextIncoming !== null || nextOutgoing !== null) {
+        hasLoadedAgreementsRef.current = true;
+        lastFetchedUserIdRef.current = userId;
       }
     } catch (error) {
       console.error("Error fetching agreements:", error);
       toast.error(`Failed to fetch agreements - make sure the API server is running on ${API_BASE_URL}`);
     } finally {
-      setIsLoading(false);
+      agreementsFetchInFlightRef.current = false;
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   };
 
-  const fetchOnchainProjects = async () => {
+  const fetchOnchainProjects = async (options: { force?: boolean } = {}) => {
+    const { force = false } = options;
+
     if (!permitOwnerAddress) {
       setFundedProjects([]);
+      lastFetchedProjectsAddressRef.current = null;
       return;
     }
+
+    if (projectsFetchInFlightRef.current) return;
+    if (!force && lastFetchedProjectsAddressRef.current === permitOwnerAddress) return;
+
     try {
+      projectsFetchInFlightRef.current = true;
       setIsLoadingProjects(true);
       const projects = await getProjectsForClient(thirdwebClient, permitOwnerAddress, 12);
       setFundedProjects(projects);
+      lastFetchedProjectsAddressRef.current = permitOwnerAddress;
     } catch (error) {
       console.error("Error fetching onchain projects:", error);
       toast.error("Failed to load funded projects from chain");
     } finally {
+      projectsFetchInFlightRef.current = false;
       setIsLoadingProjects(false);
     }
   };
 
   useEffect(() => {
-    if (session?.user?.id) fetchAgreements();
+    if (!session?.user?.id) return;
+
+    if (lastFetchedUserIdRef.current && lastFetchedUserIdRef.current !== session.user.id) {
+      hasLoadedAgreementsRef.current = false;
+      lastFetchedUserIdRef.current = null;
+      setIncomingAgreements([]);
+      setOutgoingAgreements([]);
+    }
+
+    fetchAgreements({ silent: false });
   }, [session?.user?.id]);
 
   useEffect(() => {
@@ -289,7 +351,7 @@ export default function AgreementsPage() {
     <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
       <Card className="group relative bg-white/40 backdrop-blur-xl border border-white/60 rounded-[28px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:border-[#1A2406]/10 transition-all duration-500">
         <div className="absolute inset-0 bg-gradient-to-br from-white/30 to-transparent pointer-events-none" />
-        
+
         <CardHeader className="pb-3 relative z-10">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
@@ -324,7 +386,7 @@ export default function AgreementsPage() {
               "{agreement.description}"
             </p>
           )}
-          
+
           <div className="grid grid-cols-2 gap-4 pb-2">
             <div className="rounded-xl bg-slate-50/50 p-3 border border-black/[0.02]">
               <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none mb-1.5">Full Budget</p>
@@ -337,28 +399,28 @@ export default function AgreementsPage() {
               <p className="text-lg font-bold text-[#1A2406]">{agreement.milestones.length}</p>
             </div>
           </div>
-          
+
           <div className="pt-3 border-t border-white/40 flex items-center justify-between">
             <span className="text-[10px] font-medium text-[#1A2406]/30 flex items-center gap-1.5">
               <Clock className="w-3 h-3" />
               {new Date(agreement.createdAt).toLocaleDateString()}
             </span>
             <div className="flex items-center gap-3">
-              <button 
+              <button
                 onClick={(e) => { e.stopPropagation(); generateAgreementPDF(agreement); toast.success("PDF downloaded!"); }}
                 className="text-[10px] font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#D9F24F] transition-colors flex items-center gap-1"
               >
                 <Download className="w-3.5 h-3.5" /> PDF
               </button>
               <Button
-              asChild
-              variant="ghost"
-              className="text-[10px] h-auto p-0 font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#1A2406] hover:bg-transparent transition-colors group/btn"
-            >
-              <Link href={`/agreements/${agreement.id}`}>
+                asChild
+                variant="ghost"
+                className="text-[10px] h-auto p-0 font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#1A2406] hover:bg-transparent transition-colors group/btn"
+              >
+                <Link href={`/agreements/${agreement.id}`}>
                   View Details <ArrowUpRight className="w-3.5 h-3.5 group-hover/btn:-translate-y-0.5 group-hover/btn:translate-x-0.5 transition-transform" />
                 </Link>
-            </Button>
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -374,13 +436,13 @@ export default function AgreementsPage() {
       return all.find((a: any) => Number(a.projectId) === pId);
     }, [project.projectId, incomingAgreements, outgoingAgreements]);
 
-    const detailUrl = metadata 
-      ? `/agreements/${metadata.id}` 
+    const detailUrl = metadata
+      ? `/agreements/${metadata.id}`
       : `/agreements/pid-${project.projectId.toString()}`;
 
     const bTotal = BigInt(project.amount);
     const bPaid = BigInt(project.releasedAmount);
-    
+
     const totalStr = formatPusdAmount(bTotal);
     const paidStr = formatPusdAmount(bPaid);
     const remaining = bTotal - bPaid;
@@ -388,12 +450,12 @@ export default function AgreementsPage() {
 
     const status = project.isCompleted ? "COMPLETED" : project.isFunded ? "FUNDED" : "PENDING";
     const displayStatus = getStatusLabel(status);
-    
+
     return (
       <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
         <Card className="group relative bg-white border border-[#1A2406]/5 rounded-[32px] overflow-hidden shadow-sm hover:shadow-xl hover:shadow-[#1A2406]/5 transition-all duration-500">
           <div className="absolute top-0 left-0 w-full h-1.5 bg-[#D9F24F]/10 overflow-hidden">
-            <motion.div 
+            <motion.div
               initial={{ x: "-100%" }}
               animate={{ x: "0%" }}
               transition={{ duration: 1.5, ease: "circOut" }}
@@ -421,7 +483,7 @@ export default function AgreementsPage() {
                 {displayStatus}
               </Badge>
             </div>
-            
+
             {metadata?.description && (
               <p className="text-xs text-[#1A2406]/50 line-clamp-2 leading-relaxed">
                 {metadata.description}
@@ -446,7 +508,7 @@ export default function AgreementsPage() {
             </div>
 
             <div className="space-y-3">
-              {project.isFunded && !project.isCompleted && remaining > 0n && (
+              {project.isFunded && !project.isCompleted && remaining > BigInt(0) && (
                 <div className="flex gap-2">
                   <Button
                     onClick={() => {
@@ -490,7 +552,7 @@ export default function AgreementsPage() {
   return (
     <motion.div
       variants={stagger}
-      initial="hidden"
+      initial={false}
       animate="visible"
       className="mx-auto max-w-6xl space-y-10 pt-2 pb-12"
     >
@@ -511,7 +573,7 @@ export default function AgreementsPage() {
             Manage your on-chain milestone payouts and document digital contracts.
           </p>
         </div>
-        
+
         <Link href="/agreements/new-agreement">
           <motion.div whileHover={HOVER_SCALE} whileTap={BUTTON_PRESS}>
             <button className="rounded-xl bg-[#1A2406] text-white px-6 py-3.5 text-xs font-bold tracking-tight flex items-center gap-2 shadow-xl shadow-[#1A2406]/10">
@@ -533,7 +595,7 @@ export default function AgreementsPage() {
             On-Chain Verified
           </Badge>
         </div>
-        
+
         {isLoadingProjects ? (
           <div className="flex flex-col items-center justify-center py-16 space-y-4">
             <Loader2 className="w-8 h-8 animate-spin text-[#1A2406]/10" />
