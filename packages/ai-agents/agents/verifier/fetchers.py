@@ -193,7 +193,7 @@ def fetch_github(url: str, milestone_spec: str = "") -> str:
 
     if milestone_spec and len(ordered_files) > 5:
         print(f"  [github] {len(ordered_files)} candidate files found. Using AI scout...")
-        from llm import run_scout
+        from .llm import run_scout
         selected = run_scout(milestone_spec, ordered_files)
         if selected:
             # ensure valid paths and keep ordering

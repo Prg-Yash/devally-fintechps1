@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,9 @@ import {
   FileText,
   Send,
   Sparkles,
-  Bot
+  Bot,
+  Wand2,
+  BrainCircuit
 } from "lucide-react";
 import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { sepolia } from "thirdweb/chains";
@@ -71,10 +73,15 @@ const txStepMeta: Record<TxStep, { label: string; color: string }> = {
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_BASE_URL ?? "http://localhost:8000";
+
+// ─── AI active-field type ───
+type AiActiveField = "idle" | "title" | "description" | "amount" | "dueDate" | "milestones" | "done";
 
 interface MilestoneInput {
   title: string;
   amount: string;
+  dueDate: string;
 }
 
 export default function NewAgreementPage() {
@@ -99,8 +106,16 @@ export default function NewAgreementPage() {
   });
 
   const [milestones, setMilestones] = useState<MilestoneInput[]>([
-    { title: "Initial Draft", amount: "" }
+    { title: "Initial Draft", amount: "", dueDate: "" }
   ]);
+
+  // ─── AI Generator State ───
+  const [aiIdea, setAiIdea] = useState("");
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [aiActiveField, setAiActiveField] = useState<AiActiveField>("idle");
+  const [aiComplexity, setAiComplexity] = useState("");
+  const [aiBudgetReasoning, setAiBudgetReasoning] = useState("");
+  const [aiTechStack, setAiTechStack] = useState<string[]>([]);
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
   const pusdContract = useMemo(() => getPusdContract(thirdwebClient), []);
@@ -113,7 +128,7 @@ export default function NewAgreementPage() {
     smartAccountAddress !== adminAccount?.address;
 
   const addMilestone = () => {
-    setMilestones([...milestones, { title: "", amount: "" }]);
+    setMilestones([...milestones, { title: "", amount: "", dueDate: "" }]);
   };
 
   const removeMilestone = (index: number) => {
@@ -124,6 +139,221 @@ export default function NewAgreementPage() {
     const newMilestones = [...milestones];
     newMilestones[index][field] = value;
     setMilestones(newMilestones);
+  };
+
+  // ─── Helper: delay ───
+  const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+  // ─── AI Agreement Generator ───
+  const handleAiGenerate = async () => {
+    if (!aiIdea.trim()) {
+      toast.error("Describe your project idea first");
+      return;
+    }
+
+    setIsAiGenerating(true);
+    setAiActiveField("idle");
+    setAiComplexity("");
+    setAiBudgetReasoning("");
+    setAiTechStack([]);
+
+    try {
+      const res = await fetch(`${AI_BASE_URL}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_idea: aiIdea }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Agent returned ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      // Sequential field filling with animation
+
+      // 1. Title
+      setAiActiveField("title");
+      await delay(600);
+      setFormData(prev => ({ ...prev, title: data.title || "" }));
+      await delay(400);
+
+      // 2. Description
+      setAiActiveField("description");
+      await delay(600);
+      setFormData(prev => ({ ...prev, description: data.description || "" }));
+      await delay(400);
+
+      // 3. Amount
+      setAiActiveField("amount");
+      await delay(600);
+      setFormData(prev => ({ ...prev, amount: String(data.total_budget_pusd || "") }));
+      await delay(400);
+
+      // 4. Due Date (calculate from today + estimated_duration_days)
+      setAiActiveField("dueDate");
+      await delay(600);
+      if (data.estimated_duration_days) {
+        const due = new Date();
+        due.setDate(due.getDate() + data.estimated_duration_days);
+        const dueDateStr = due.toISOString().split("T")[0];
+        setFormData(prev => ({ ...prev, dueDate: dueDateStr }));
+      }
+      await delay(400);
+
+      // 5. Milestones
+      setAiActiveField("milestones");
+      await delay(400);
+      if (data.milestones && data.milestones.length > 0) {
+        const newMilestones: MilestoneInput[] = data.milestones.map((ms: any) => {
+          const msDue = new Date();
+          msDue.setDate(msDue.getDate() + (ms.due_days || 7));
+          return {
+            title: ms.title || "",
+            amount: String(ms.amount_pusd || ""),
+            dueDate: msDue.toISOString().split("T")[0],
+          };
+        });
+        setMilestones(newMilestones);
+      }
+      await delay(600);
+
+      // Store extra AI data for display
+      setAiComplexity(data.complexity_level || "");
+      setAiBudgetReasoning(data.budget_reasoning || "");
+      setAiTechStack(data.tech_stack || []);
+
+      setAiActiveField("done");
+      toast.success("Agreement generated by AI! All fields are editable.", {
+        icon: <Sparkles className="w-4 h-4 text-[#D9F24F]" />,
+        duration: 4000,
+      });
+
+      setTimeout(() => setAiActiveField("idle"), 3000);
+
+    } catch (error: any) {
+      console.error("AI generation failed:", error);
+      toast.error(error?.message || "Failed to generate agreement with AI");
+      setAiActiveField("idle");
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
+  // ─── Gradient border class helper ───
+  const getFieldGlow = (field: AiActiveField) => {
+    if (aiActiveField === field) {
+      return "ai-glow-active";
+    }
+    return "";
+  };
+
+  const saveAgreementMetadata = async (projectId: bigint) => {
+  // ─── Helper: delay ───
+  const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+  // ─── AI Agreement Generator ───
+  const handleAiGenerate = async () => {
+    if (!aiIdea.trim()) {
+      toast.error("Describe your project idea first");
+      return;
+    }
+
+    setIsAiGenerating(true);
+    setAiActiveField("idle");
+    setAiComplexity("");
+    setAiBudgetReasoning("");
+    setAiTechStack([]);
+
+    try {
+      const res = await fetch(`${AI_BASE_URL}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_idea: aiIdea }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`AI Agent returned ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      // Sequential field filling with animation
+
+      // 1. Title
+      setAiActiveField("title");
+      await delay(600);
+      setFormData(prev => ({ ...prev, title: data.title || "" }));
+      await delay(400);
+
+      // 2. Description
+      setAiActiveField("description");
+      await delay(600);
+      setFormData(prev => ({ ...prev, description: data.description || "" }));
+      await delay(400);
+
+      // 3. Amount
+      setAiActiveField("amount");
+      await delay(600);
+      setFormData(prev => ({ ...prev, amount: String(data.total_budget_pusd || "") }));
+      await delay(400);
+
+      // 4. Due Date (calculate from today + estimated_duration_days)
+      setAiActiveField("dueDate");
+      await delay(600);
+      if (data.estimated_duration_days) {
+        const due = new Date();
+        due.setDate(due.getDate() + data.estimated_duration_days);
+        const dueDateStr = due.toISOString().split("T")[0];
+        setFormData(prev => ({ ...prev, dueDate: dueDateStr }));
+      }
+      await delay(400);
+
+      // 5. Milestones
+      setAiActiveField("milestones");
+      await delay(400);
+      if (data.milestones && data.milestones.length > 0) {
+        const newMilestones: MilestoneInput[] = data.milestones.map((ms: any) => {
+          const msDue = new Date();
+          msDue.setDate(msDue.getDate() + (ms.due_days || 7));
+          return {
+            title: ms.title || "",
+            amount: String(ms.amount_pusd || ""),
+            dueDate: msDue.toISOString().split("T")[0],
+          };
+        });
+        setMilestones(newMilestones);
+      }
+      await delay(600);
+
+      // Store extra AI data for display
+      setAiComplexity(data.complexity_level || "");
+      setAiBudgetReasoning(data.budget_reasoning || "");
+      setAiTechStack(data.tech_stack || []);
+
+      setAiActiveField("done");
+      toast.success("Agreement generated by AI! All fields are editable.", {
+        icon: <Sparkles className="w-4 h-4 text-[#D9F24F]" />,
+        duration: 4000,
+      });
+
+      setTimeout(() => setAiActiveField("idle"), 3000);
+
+    } catch (error: any) {
+      console.error("AI generation failed:", error);
+      toast.error(error?.message || "Failed to generate agreement with AI");
+      setAiActiveField("idle");
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
+  // ─── Gradient border class helper ───
+  const getFieldGlow = (field: AiActiveField) => {
+    if (aiActiveField === field) {
+      return "ai-glow-active";
+    }
+    return "";
   };
 
   const saveAgreementMetadata = async (projectId: bigint, txHash?: string) => {
@@ -146,6 +376,7 @@ export default function NewAgreementPage() {
           milestones: milestones.map(m => ({
             title: m.title,
             amount: parseFloat(m.amount) || 0,
+            dueDate: m.dueDate ? new Date(m.dueDate) : null,
             status: "PENDING"
           }))
         }),
@@ -288,6 +519,46 @@ export default function NewAgreementPage() {
   };
 
   return (
+    <>
+      {/* ─── Global AI Glow Styles ─── */}
+      <style jsx global>{`
+        @keyframes aiGradientBorder {
+          0% { border-color: #D9F24F; box-shadow: 0 0 8px rgba(217,242,79,0.3), 0 0 20px rgba(217,242,79,0.1); }
+          25% { border-color: #a8e063; box-shadow: 0 0 12px rgba(168,224,99,0.4), 0 0 25px rgba(168,224,99,0.15); }
+          50% { border-color: #56ab2f; box-shadow: 0 0 16px rgba(86,171,47,0.4), 0 0 30px rgba(86,171,47,0.15); }
+          75% { border-color: #a8e063; box-shadow: 0 0 12px rgba(168,224,99,0.4), 0 0 25px rgba(168,224,99,0.15); }
+          100% { border-color: #D9F24F; box-shadow: 0 0 8px rgba(217,242,79,0.3), 0 0 20px rgba(217,242,79,0.1); }
+        }
+        .ai-glow-active {
+          animation: aiGradientBorder 1.5s ease-in-out infinite !important;
+          border-color: #D9F24F !important;
+          border-width: 2px !important;
+          border-style: solid !important;
+          border-radius: 12px !important;
+          transition: all 0.3s ease !important;
+        }
+        .ai-glow-active input, .ai-glow-active textarea {
+          border-color: transparent !important;
+        }
+        @keyframes aiPulseRing {
+          0% { transform: scale(1); opacity: 0.6; }
+          50% { transform: scale(1.05); opacity: 1; }
+          100% { transform: scale(1); opacity: 0.6; }
+        }
+        .ai-pulse-ring {
+          animation: aiPulseRing 2s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        .ai-shimmer {
+          background: linear-gradient(90deg, transparent 0%, rgba(217,242,79,0.15) 50%, transparent 100%);
+          background-size: 200% 100%;
+          animation: shimmer 2s linear infinite;
+        }
+      `}</style>
+
     <motion.div
       variants={stagger}
       initial="hidden"
@@ -331,7 +602,7 @@ export default function NewAgreementPage() {
             </div>
             
             <div className="grid grid-cols-1 gap-8">
-              <div className="space-y-3">
+              <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("title")}`}>
                 <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Agreement Title *</Label>
                 <Input 
                   placeholder="e.g., Mobile App Design" 
@@ -341,7 +612,7 @@ export default function NewAgreementPage() {
                 />
               </div>
 
-              <div className="space-y-3">
+              <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("description")}`}>
                 <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Project Narration (Optional)</Label>
                 <textarea 
                   className="w-full bg-[#1A2406]/[0.02] rounded-3xl border border-[#1A2406]/5 p-6 text-base min-h-[140px] outline-none focus:ring-4 focus:ring-[#D9F24F]/10 focus:border-[#D9F24F]/30 transition-all font-medium text-[#1A2406]/70 leading-relaxed placeholder:text-[#1A2406]/10" 
@@ -387,8 +658,8 @@ export default function NewAgreementPage() {
                 />
               </div>
 
-              <div className="space-y-3">
-                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Total Project Budget *</Label>
+              <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("amount")}`}>
+                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">PUSD Total Amount *</Label>
                 <div className="relative">
                   <span className="absolute right-0 top-1/2 -translate-y-1/2 font-jakarta font-bold text-[#1A2406]/20 text-xs">PUSD</span>
                   <Input 
@@ -401,8 +672,8 @@ export default function NewAgreementPage() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Final Delivery Date *</Label>
+              <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("dueDate")}`}>
+                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Target Completion Date *</Label>
                 <div className="relative">
                   <Calendar className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
                   <Input 
@@ -414,13 +685,60 @@ export default function NewAgreementPage() {
                 </div>
               </div>
             </div>
+
+            {/* AI Budget Reasoning (shows after AI generates) */}
+            <AnimatePresence>
+              {aiBudgetReasoning && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="flex items-start gap-3 p-4 rounded-2xl bg-[#D9F24F]/5 border border-[#D9F24F]/20"
+                >
+                  <BrainCircuit className="w-4 h-4 text-[#D9F24F] mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/30 mb-1">AI Price Reasoning</p>
+                    <p className="text-xs text-[#1A2406]/60 leading-relaxed">{aiBudgetReasoning}</p>
+                    {aiComplexity && (
+                      <Badge variant="outline" className="mt-2 text-[8px] font-bold uppercase border-[#D9F24F]/30 text-[#1A2406]/50">
+                        {aiComplexity} complexity
+                      </Badge>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* AI Tech Stack (shows after AI generates) */}
+            <AnimatePresence>
+              {aiTechStack.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="flex items-start gap-3 p-4 rounded-2xl bg-[#1A2406]/[0.02] border border-[#1A2406]/5"
+                >
+                  <Zap className="w-4 h-4 text-[#1A2406]/30 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/30 mb-2">Recommended Tech Stack</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {aiTechStack.map((tech, i) => (
+                        <Badge key={i} variant="outline" className="text-[10px] font-semibold bg-white border-[#1A2406]/10 text-[#1A2406]/60 rounded-lg px-2.5 py-0.5">
+                          {tech}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
 
           {/* Section: Milestone Ledger */}
-          <motion.div variants={maskedReveal} className="space-y-8 pt-4 border-t border-[#1A2406]/5">
+          <motion.div variants={maskedReveal} className={`space-y-8 pt-4 border-t border-[#1A2406]/5 rounded-2xl transition-all duration-300 ${aiActiveField === "milestones" ? "ai-shimmer" : ""}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-[#1A2406]/5 flex items-center justify-center border border-[#1A2406]/5">
+                <div className={`w-10 h-10 rounded-full bg-[#1A2406]/5 flex items-center justify-center border border-[#1A2406]/5 transition-all ${aiActiveField === "milestones" ? "ai-pulse-ring bg-[#D9F24F]/20 border-[#D9F24F]/30" : ""}`}>
                   <Zap className="w-5 h-5 text-[#1A2406]/40" />
                 </div>
                 <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">Payment Roadmap</h2>
@@ -451,7 +769,7 @@ export default function NewAgreementPage() {
                         {index + 1}
                       </div>
                     </div>
-                    <div className="md:col-span-7 space-y-2">
+                    <div className="md:col-span-4 space-y-2">
                         <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">Milestone Title</Label>
                         <Input 
                         placeholder="Deliverable Name" 
@@ -471,6 +789,18 @@ export default function NewAgreementPage() {
                             className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none font-bold placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all pr-8"
                         />
                         <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[#1A2406]/20">PUSD</span>
+                        </div>
+                    </div>
+                    <div className="md:col-span-3 space-y-2">
+                        <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">Due Date</Label>
+                        <div className="relative">
+                          <Calendar className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
+                          <Input 
+                              type="date" 
+                              value={milestone.dueDate} 
+                              onChange={(e) => updateMilestone(index, "dueDate", e.target.value)}
+                              className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none text-sm placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all pr-8"
+                          />
                         </div>
                     </div>
                     <div className="md:col-span-1 flex justify-center">
@@ -508,8 +838,125 @@ export default function NewAgreementPage() {
           </motion.div>
         </div>
 
-        {/* ── Right Column: Minimalist Sidebar (Fixed position in layout) ── */}
-        <div className="lg:col-span-4 shrink-0 space-y-6 lg:h-full lg:flex lg:flex-col">
+        {/* ── Right Column: AI Generator + Wallet Sidebar ── */}
+        <div className="lg:col-span-4 shrink-0 space-y-6 lg:h-full lg:flex lg:flex-col overflow-y-auto scrollbar-none">
+          
+          {/* ─── AI Agreement Generator Card ─── */}
+          <motion.div variants={maskedReveal} className="flex flex-col">
+            <Card className={`border-0 rounded-[32px] overflow-hidden shadow-2xl transition-all duration-500 ${
+              isAiGenerating 
+                ? "bg-gradient-to-br from-[#1A2406] via-[#2a3a10] to-[#1A2406]" 
+                : "bg-gradient-to-br from-[#D9F24F] via-[#c4db47] to-[#a8c03a]"
+            }`}>
+              <CardContent className="p-6 space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`p-2 rounded-xl ${isAiGenerating ? "bg-[#D9F24F]/20" : "bg-[#1A2406]/10"}`}>
+                      <Wand2 className={`w-4 h-4 ${isAiGenerating ? "text-[#D9F24F] animate-spin" : "text-[#1A2406]"}`} />
+                    </div>
+                    <div>
+                      <p className={`text-xs font-bold font-jakarta ${isAiGenerating ? "text-white" : "text-[#1A2406]"}`}>
+                        AI Agreement Generator
+                      </p>
+                      <p className={`text-[8px] font-bold uppercase tracking-widest ${isAiGenerating ? "text-white/40" : "text-[#1A2406]/40"}`}>
+                        Powered by Qwen3-32B
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className={`border-none text-[7px] font-black uppercase px-2 py-0 ${
+                    isAiGenerating 
+                      ? "bg-[#D9F24F]/10 text-[#D9F24F]" 
+                      : "bg-[#1A2406]/10 text-[#1A2406]/60"
+                  }`}>
+                    {isAiGenerating ? "Generating..." : aiActiveField === "done" ? "✓ Done" : "Ready"}
+                  </Badge>
+                </div>
+
+                {/* Input */}
+                <div className="space-y-2">
+                  <textarea
+                    value={aiIdea}
+                    onChange={(e) => setAiIdea(e.target.value)}
+                    placeholder="Describe your project in one line...&#10;e.g., &quot;Build me a SaaS dashboard with auth and analytics&quot;"
+                    disabled={isAiGenerating}
+                    className={`w-full rounded-2xl border p-4 text-sm min-h-[80px] outline-none resize-none transition-all font-medium leading-relaxed ${
+                      isAiGenerating
+                        ? "bg-white/5 border-white/10 text-white/60 placeholder:text-white/20"
+                        : "bg-white/60 border-[#1A2406]/10 text-[#1A2406] placeholder:text-[#1A2406]/30 focus:ring-4 focus:ring-[#1A2406]/5 focus:border-[#1A2406]/20"
+                    }`}
+                  />
+                </div>
+
+                {/* Generate Button */}
+                <motion.div whileTap={BUTTON_PRESS}>
+                  <Button
+                    onClick={handleAiGenerate}
+                    disabled={isAiGenerating || !aiIdea.trim()}
+                    className={`w-full h-12 rounded-2xl font-jakarta font-bold text-xs transition-all active:scale-95 disabled:opacity-40 ${
+                      isAiGenerating
+                        ? "bg-[#D9F24F] text-[#1A2406]"
+                        : "bg-[#1A2406] text-[#D9F24F] hover:bg-[#2a3a10] shadow-lg shadow-[#1A2406]/20"
+                    }`}
+                  >
+                    {isAiGenerating ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating Agreement...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        Generate with AI
+                      </span>
+                    )}
+                  </Button>
+                </motion.div>
+
+                {/* AI Progress Steps */}
+                <AnimatePresence>
+                  {isAiGenerating && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="space-y-1.5 pt-2"
+                    >
+                      {[
+                        { field: "title" as const, label: "Project Title" },
+                        { field: "description" as const, label: "Description" },
+                        { field: "amount" as const, label: "Market Price" },
+                        { field: "dueDate" as const, label: "Timeline" },
+                        { field: "milestones" as const, label: "Milestones" },
+                      ].map((step) => {
+                        const fieldOrder: AiActiveField[] = ["title", "description", "amount", "dueDate", "milestones"];
+                        const currentIdx = fieldOrder.indexOf(aiActiveField);
+                        const stepIdx = fieldOrder.indexOf(step.field);
+                        const isActive = aiActiveField === step.field;
+                        const isDone = currentIdx > stepIdx;
+
+                        return (
+                          <div key={step.field} className={`flex items-center gap-2.5 px-3 py-1.5 rounded-xl transition-all ${
+                            isActive ? "bg-[#D9F24F]/10" : ""
+                          }`}>
+                            <div className={`w-1.5 h-1.5 rounded-full transition-all ${
+                              isDone ? "bg-[#D9F24F]" : isActive ? "bg-[#D9F24F] animate-pulse" : "bg-white/10"
+                            }`} />
+                            <span className={`text-[10px] font-bold uppercase tracking-widest transition-all ${
+                              isDone ? "text-[#D9F24F]/80" : isActive ? "text-white" : "text-white/20"
+                            }`}>
+                              {isDone ? "✓ " : ""}{step.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </CardContent>
+            </Card>
+          </motion.div>
+
           {/* Section: Simple Wallet Card - COMPACTED */}
           <motion.div variants={maskedReveal} className="flex flex-col">
             <Card className="border-0 bg-[#1A2406] text-white rounded-[32px] overflow-hidden shadow-2xl shadow-[#1A2406]/30">
@@ -557,5 +1004,6 @@ export default function NewAgreementPage() {
         </div>
       </div>
     </motion.div>
+    </>
   );
 }

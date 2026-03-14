@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   Clock,
   DollarSign,
+  Download,
   FileText,
   Loader2,
   Plus,
@@ -34,6 +35,7 @@ import {
   ShieldAlert,
   AlertCircle
 } from "lucide-react";
+import { generateAgreementPDF } from "@/lib/generate-agreement-pdf";
 import Link from "next/link";
 import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { sepolia } from "thirdweb/chains";
@@ -341,15 +343,23 @@ export default function AgreementsPage() {
               <Clock className="w-3 h-3" />
               {new Date(agreement.createdAt).toLocaleDateString()}
             </span>
-            <Button
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={(e) => { e.stopPropagation(); generateAgreementPDF(agreement); toast.success("PDF downloaded!"); }}
+                className="text-[10px] font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#D9F24F] transition-colors flex items-center gap-1"
+              >
+                <Download className="w-3.5 h-3.5" /> PDF
+              </button>
+              <Button
               asChild
               variant="ghost"
               className="text-[10px] h-auto p-0 font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#1A2406] hover:bg-transparent transition-colors group/btn"
             >
               <Link href={`/agreements/${agreement.id}`}>
-                View Details <ArrowUpRight className="w-3.5 h-3.5 group-hover/btn:-translate-y-0.5 group-hover/btn:translate-x-0.5 transition-transform" />
-              </Link>
+                  View Details <ArrowUpRight className="w-3.5 h-3.5 group-hover/btn:-translate-y-0.5 group-hover/btn:translate-x-0.5 transition-transform" />
+                </Link>
             </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

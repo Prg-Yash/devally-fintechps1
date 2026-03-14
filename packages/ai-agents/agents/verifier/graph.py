@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 
-from nodes import analyse_node, detect_node, fetch_node, score_node, should_loop
-from state import VerifierState
+from .nodes import analyse_node, detect_node, fetch_node, score_node, should_loop
+from .state import VerifierState
 
 
 def build_graph():
