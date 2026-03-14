@@ -17,6 +17,10 @@ import {
   ChevronLeft,
   Menu,
 } from 'lucide-react'
+import { ConnectButton } from "thirdweb/react"
+import { thirdwebClient } from "@/lib/thirdweb-client"
+import { sepolia } from "thirdweb/chains"
+import { AICoPilotPopup } from '@/components/AICoPilotPopup'
 
 // ─── NAV ITEMS ───
 const navItems = [
@@ -108,7 +112,21 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
           })}
         </nav>
 
-        <div className="px-2 py-10 border-t border-white/5">
+        <div className="px-4 py-8 border-t border-white/5 flex flex-col items-center">
+          <div className="w-full transition-all duration-500 ease-[0.22,1,0.36,1]">
+            <ConnectButton
+              client={thirdwebClient}
+              chain={sepolia}
+              accountAbstraction={{ chain: sepolia, sponsorGas: true }}
+              connectButton={{ 
+                label: collapsed ? "..." : "Connect Node",
+                className: "nexus-connect-sidebar !bg-[#D9F24F] !text-[#1A2406] !font-bold !rounded-2xl !w-full !h-14 !text-sm !shadow-xl !shadow-[#D9F24F]/10 !transition-all hover:!scale-[1.02] active:!scale-95"
+              }}
+              detailsButton={{
+                className: "nexus-details-sidebar !bg-white/5 !text-white !font-bold !rounded-2xl !w-full !h-14 !border !border-white/10 !transition-all hover:!bg-white/10 hover:!border-white/20 active:!scale-95"
+              }}
+            />
+          </div>
           <button
             onClick={handleSignOut}
             className="flex items-center gap-4 px-4 py-4 w-full rounded-xl text-white/30 hover:bg-white/5 hover:text-white transition-all duration-300 group"
@@ -191,6 +209,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         <main className="flex-1 p-6 md:p-10 lg:p-12 overflow-y-auto scrollbar-none scroll-smooth">
           {children}
         </main>
+        
+        <AICoPilotPopup />
       </div>
     </div>
   )
