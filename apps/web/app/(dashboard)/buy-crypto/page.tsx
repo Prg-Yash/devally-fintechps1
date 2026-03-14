@@ -1,21 +1,53 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Coins, Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
 import Script from "next/script";
 import { useRouter } from "next/navigation";
 
+interface Purchase {
+  id: string;
+  amount: number;
+  status: string;
+  createdAt: string;
+  razorpayOrderId: string;
+}
+
 export default function BuyCryptoPage() {
   const [amount, setAmount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
   const { data: session } = authClient.useSession();
   const router = useRouter();
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      fetchPurchases(session.user.id);
+    }
+  }, [session?.user?.id]);
+
+  const fetchPurchases = async (userId: string) => {
+    try {
+      setIsLoadingPurchases(true);
+      const response = await fetch(`http://localhost:5000/razorpay/purchases?userId=${userId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setPurchases(data.purchases || []);
+      }
+    } catch (error) {
+      console.error('Error fetching purchases:', error);
+    } finally {
+      setIsLoadingPurchases(false);
+    }
+  };
 
   const handlePayment = async () => {
     if (!amount || amount <= 0) {
@@ -77,7 +109,10 @@ export default function BuyCryptoPage() {
                  body: JSON.stringify({ orderId: response.razorpay_order_id })
                });
 
-               router.push("/dashboard");
+               setAmount(0);
+               if (session?.user?.id) {
+                 fetchPurchases(session.user.id);
+               }
             } else {
                toast.error("Payment verification failed. Please contact support.");
             }
@@ -85,7 +120,7 @@ export default function BuyCryptoPage() {
             console.error("Verification error:", err);
             toast.error("Error connecting to verification server.");
           } finally {
-            setAmount(0);
+            setIsLoading(false);
           }
         },
         prefill: {
@@ -102,14 +137,28 @@ export default function BuyCryptoPage() {
       
       rzp.on("payment.failed", function (response: any) {
         toast.error(`Payment Failed: ${response.error.description || "Something went wrong."}`);
+        setIsLoading(false);
       });
 
       rzp.open();
     } catch (error) {
       console.error(error);
       toast.error("Failed to initialize payment. Please check if the API is running.");
-    } finally {
       setIsLoading(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status.toUpperCase()) {
+      case "SUCCESS":
+      case "COMPLETED":
+        return "bg-green-100 text-green-800";
+      case "PENDING":
+        return "bg-yellow-100 text-yellow-800";
+      case "FAILED":
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-gray-100 text-gray-800";
     }
   };
 
@@ -117,10 +166,10 @@ export default function BuyCryptoPage() {
     <>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
       
-      <div className="max-w-xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 mt-10">
+      <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 mt-10">
         <div className="text-center">
           <h1 className="text-4xl font-bold tracking-tight text-gray-900">Buy Stablecoins</h1>
-          <p className="text-gray-500 mt-2">Fund your escrow wallet instantly using Razorpay.</p>
+          <p className="text-gray-500 mt-2">Purchase stablecoins securely using Razorpay. {session?.user?.name && `Welcome, ${session.user.name}`}</p>
         </div>
 
         <Card className="shadow-lg border-primary/20">
@@ -178,6 +227,34 @@ export default function BuyCryptoPage() {
             </Button>
           </CardFooter>
         </Card>
+
+        {isLoadingPurchases ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin" />
+          </div>
+        ) : purchases.length > 0 ? (
+          <div>
+            <h2 className="text-2xl font-bold mb-4">Your Purchase History</h2>
+            <div className="space-y-3">
+              {purchases.map((purchase) => (
+                <Card key={purchase.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="font-semibold">₹{purchase.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-sm text-gray-500">Order ID: {purchase.razorpayOrderId.slice(0, 15)}...</p>
+                        <p className="text-sm text-gray-400">{new Date(purchase.createdAt).toLocaleString()}</p>
+                      </div>
+                      <Badge className={getStatusColor(purchase.status)}>
+                        {purchase.status}
+                      </Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </>
   );
