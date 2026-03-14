@@ -3,16 +3,16 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  ArrowLeft, 
-  ShieldCheck, 
-  Clock, 
-  Wallet, 
-  FileText, 
-  CheckCircle2, 
-  Zap, 
-  DollarSign, 
-  User, 
+import {
+  ArrowLeft,
+  ShieldCheck,
+  Clock,
+  Wallet,
+  FileText,
+  CheckCircle2,
+  Zap,
+  DollarSign,
+  User,
   Calendar,
   ChevronRight,
   Shield,
@@ -21,10 +21,11 @@ import {
   Loader2,
   AlertCircle
 } from "lucide-react";
-import { Button } from "@/components/ui/button";  
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { authClient } from "@/lib/auth-client";
 import {
   formatPusdAmount,
   getEscrowContract,
@@ -81,6 +82,7 @@ export default function AgreementDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
+  const { data: session } = authClient.useSession();
 
   const account = useActiveAccount();
   const activeWallet = useActiveWallet();
@@ -95,26 +97,42 @@ export default function AgreementDetailPage() {
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
 
+  const isProtocolRoute = id?.startsWith("pid-") || !isNaN(Number(id));
+
+  const fetchAgreementFromUserLists = async (userId: string, agreementId: string) => {
+    const [incomingRes, outgoingRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/agreements/incoming?userId=${userId}`),
+      fetch(`${API_BASE_URL}/agreements/outgoing?userId=${userId}`),
+    ]);
+
+    const incomingData = incomingRes.ok ? await incomingRes.json().catch(() => ({})) : {};
+    const outgoingData = outgoingRes.ok ? await outgoingRes.json().catch(() => ({})) : {};
+
+    const incoming = Array.isArray(incomingData?.agreements) ? incomingData.agreements : [];
+    const outgoing = Array.isArray(outgoingData?.agreements) ? outgoingData.agreements : [];
+    const all = [...incoming, ...outgoing] as Agreement[];
+
+    return all.find((a) => a.id === agreementId) || null;
+  };
+
   const fetchDetails = async () => {
     try {
       setIsLoading(true);
-      
+
       let agreementData: Agreement | null = null;
       let targetProjectId: number | null = null;
 
-      // FIRST: Always try to fetch directly by ID
-      try {
-        const res = await fetch(`${API_BASE_URL}/agreements/${id}`);
-        if (res.ok) {
-          const data = await res.json();
-          agreementData = data.agreement || null;
+      // For normal agreement links, prefer incoming/outgoing lists scoped by logged-in user.
+      if (!isProtocolRoute && session?.user?.id) {
+        try {
+          agreementData = await fetchAgreementFromUserLists(session.user.id, id);
           targetProjectId = agreementData?.projectId ?? null;
+        } catch (e) {
+          console.warn("Scoped agreement list fetch failed", e);
         }
-      } catch (e) {
-        console.warn("Direct DB fetch failed", e);
       }
 
-      // SECOND: If not found but looks like "pid-X" or just a number, try by projectId
+      // If not found but looks like "pid-X" or just a number, try by projectId.
       if (!agreementData) {
         if (id.startsWith("pid-")) {
           targetProjectId = parseInt(id.replace("pid-", ""));
@@ -133,6 +151,12 @@ export default function AgreementDetailPage() {
             console.warn("DB search failed or off-chain data missing", e);
           }
         }
+      }
+
+      // Canonical URL: if this page was opened via pid-based route but DB mapping exists,
+      // redirect to the stable agreement-id URL so both chain and DB data live under one link.
+      if (agreementData?.id && id !== agreementData.id) {
+        router.replace(`/agreements/${agreementData.id}`);
       }
 
       setAgreement(agreementData);
@@ -155,15 +179,17 @@ export default function AgreementDetailPage() {
   };
 
   useEffect(() => {
-    if (id) fetchDetails();
-  }, [id]);
+    if (!id) return;
+    if (!isProtocolRoute && !session?.user?.id) return;
+    fetchDetails();
+  }, [id, isProtocolRoute, session?.user?.id]);
 
   const handleReleaseFull = async () => {
     if (!onchainData || !activeSigner) return;
     try {
       setIsReleasing(true);
       const remaining = onchainData.amount - onchainData.releasedAmount;
-      
+
       const tx = prepareContractCall({
         contract: escrowContract,
         method: "function releaseMilestone(uint256 _projectId, uint256 _amount)",
@@ -216,25 +242,25 @@ export default function AgreementDetailPage() {
   const progress = bTotal > BigInt(0) ? Number((bPaid * BigInt(100)) / bTotal) : 0;
 
   return (
-    <motion.div 
-      initial="hidden" 
-      animate="visible" 
+    <motion.div
+      initial="hidden"
+      animate="visible"
       variants={stagger}
       className="mx-auto max-w-6xl pt-2 pb-20 space-y-12"
     >
       {/* ── Header ── */}
       <motion.div variants={maskedReveal} className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 border-b border-[#1A2406]/5 pb-12 px-1">
         <div className="space-y-4">
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => router.back()}
             className="p-0 h-auto hover:bg-transparent text-[#1A2406]/40 hover:text-[#1A2406] transition-colors gap-2 group"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
             <span className="text-[10px] font-bold uppercase tracking-widest">Back to Registry</span>
           </Button>
-          
+
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <h1 className="text-4xl font-jakarta font-bold tracking-[-0.04em] text-[#1A2406]">
@@ -270,7 +296,7 @@ export default function AgreementDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
         {/* ── Main Content ── */}
         <div className="lg:col-span-8 space-y-16">
-          
+
           {agreement ? (
             <>
               {/* Section: Narrative */}
@@ -281,7 +307,7 @@ export default function AgreementDetailPage() {
                   </div>
                   <h2 className="text-xl font-jakarta font-bold text-[#1A2406]">Agreement Terms</h2>
                 </div>
-                
+
                 <div className="p-10 rounded-[40px] bg-white border border-[#1A2406]/5 shadow-sm space-y-8">
                   <div className="space-y-4">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/20">The Agreement</p>
@@ -359,13 +385,13 @@ export default function AgreementDetailPage() {
                             </div>
                             <div className="flex items-center gap-6">
                               <div className="flex items-center gap-2">
-                                 <DollarSign className="w-3.5 h-3.5 text-[#1A2406]/20" />
-                                 <span className="text-sm font-bold text-[#1A2406]">{ms.amount} <span className="text-[10px] text-[#1A2406]/30 uppercase">PUSD</span></span>
+                                <DollarSign className="w-3.5 h-3.5 text-[#1A2406]/20" />
+                                <span className="text-sm font-bold text-[#1A2406]">{ms.amount} <span className="text-[10px] text-[#1A2406]/30 uppercase">PUSD</span></span>
                               </div>
                               {ms.dueDate && (
                                 <div className="flex items-center gap-2">
-                                   <Calendar className="w-3.5 h-3.5 text-[#1A2406]/20" />
-                                   <span className="text-[10px] font-bold uppercase tracking-wider text-[#1A2406]/40">{new Date(ms.dueDate).toLocaleDateString()}</span>
+                                  <Calendar className="w-3.5 h-3.5 text-[#1A2406]/20" />
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#1A2406]/40">{new Date(ms.dueDate).toLocaleDateString()}</span>
                                 </div>
                               )}
                             </div>
@@ -378,7 +404,7 @@ export default function AgreementDetailPage() {
                     </div>
                   )) : (
                     <div className="p-8 rounded-[28px] bg-[#1A2406]/[0.02] border border-dashed border-[#1A2406]/10 text-center">
-                       <p className="text-xs text-[#1A2406]/30 font-medium italic">No milestones defined for this agreement.</p>
+                      <p className="text-xs text-[#1A2406]/30 font-medium italic">No milestones defined for this agreement.</p>
                     </div>
                   )}
                 </div>
@@ -394,15 +420,15 @@ export default function AgreementDetailPage() {
                 This project exists securely on the smart contract, but its off-chain details (title, description, payment roadmap, user profiles) were not found in the platform registry.
               </p>
               <div className="flex flex-col sm:flex-row items-center gap-6 mt-8 p-6 bg-[#FAFAF9] rounded-3xl text-left w-full justify-center">
-                 <div className="space-y-1 text-center sm:text-left">
-                   <p className="text-[10px] uppercase tracking-widest font-bold text-[#1A2406]/30">Client Wallet</p>
-                   <p className="font-mono text-sm text-[#1A2406]">{onchainData ? shortAddress(onchainData.client) : "..."}</p>
-                 </div>
-                 <div className="hidden sm:block w-px h-10 bg-[#1A2406]/10 mx-4" />
-                 <div className="space-y-1 text-center sm:text-left">
-                   <p className="text-[10px] uppercase tracking-widest font-bold text-[#1A2406]/30">Freelancer Wallet</p>
-                   <p className="font-mono text-sm text-[#1A2406]">{onchainData ? shortAddress(onchainData.freelancer) : "..."}</p>
-                 </div>
+                <div className="space-y-1 text-center sm:text-left">
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-[#1A2406]/30">Client Wallet</p>
+                  <p className="font-mono text-sm text-[#1A2406]">{onchainData ? shortAddress(onchainData.client) : "..."}</p>
+                </div>
+                <div className="hidden sm:block w-px h-10 bg-[#1A2406]/10 mx-4" />
+                <div className="space-y-1 text-center sm:text-left">
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-[#1A2406]/30">Freelancer Wallet</p>
+                  <p className="font-mono text-sm text-[#1A2406]">{onchainData ? shortAddress(onchainData.freelancer) : "..."}</p>
+                </div>
               </div>
             </motion.section>
           )}
@@ -410,18 +436,18 @@ export default function AgreementDetailPage() {
 
         {/* ── Sidebar: Financial State ── */}
         <div className="lg:col-span-4 sticky top-8 space-y-8">
-          
+
           {/* Vault Balance Card */}
           <motion.div variants={maskedReveal}>
             <Card className="border-0 bg-[#1A2406] text-white rounded-[40px] overflow-hidden shadow-2xl shadow-[#1A2406]/40">
               <div className="absolute top-0 left-0 w-full h-1 bg-white/10">
-                <motion.div 
+                <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${progress}%` }}
                   className="h-full bg-[#D9F24F]"
                 />
               </div>
-              
+
               <CardContent className="p-8 space-y-8">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -452,13 +478,13 @@ export default function AgreementDetailPage() {
                 </div>
 
                 {onchainData && !onchainData.isCompleted && remaining > 0n && (
-                   <Button 
+                  <Button
                     disabled={isReleasing || !activeSigner}
                     onClick={handleReleaseFull}
                     className="w-full h-14 rounded-2xl bg-[#D9F24F] text-[#1A2406] hover:bg-[#c4db47] font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-xl shadow-[#D9F24F]/10"
-                   >
-                     {isReleasing ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-4 h-4" /> Authorize Full Payout</>}
-                   </Button>
+                  >
+                    {isReleasing ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-4 h-4" /> Authorize Full Payout</>}
+                  </Button>
                 )}
 
                 {!onchainData && (
@@ -482,14 +508,14 @@ export default function AgreementDetailPage() {
           {/* Verification Footnote */}
           <motion.div variants={maskedReveal} className="p-8 rounded-[32px] bg-[#1A2406]/[0.02] border border-dashed border-[#1A2406]/10 flex flex-col items-center text-center gap-6">
             <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center">
-                <ShieldCheck className="w-6 h-6 text-[#1A2406]/40" />
+              <ShieldCheck className="w-6 h-6 text-[#1A2406]/40" />
             </div>
             <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406] mb-2">Network Verification</p>
-                <p className="text-[10px] font-medium text-[#1A2406]/40 leading-relaxed">
-                    Protected by PayCrow Secure Protocol.<br/>
-                    On-chain protection: {shortAddress(ESCROW_CONTRACT_ADDRESS)}
-                </p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406] mb-2">Network Verification</p>
+              <p className="text-[10px] font-medium text-[#1A2406]/40 leading-relaxed">
+                Protected by PayCrow Secure Protocol.<br />
+                On-chain protection: {shortAddress(ESCROW_CONTRACT_ADDRESS)}
+              </p>
             </div>
             <div className="w-full pt-4 border-t border-[#1A2406]/5">
               <p className="text-[9px] font-mono text-[#1A2406]/20 truncate">
