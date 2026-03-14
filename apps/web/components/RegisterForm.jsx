@@ -53,7 +53,7 @@ const RegisterForm = () => {
         onSuccess: () => {
           toast.success("Registration successful! Please check your email to verify your account.")
           setIsSubmitting(false)
-          router.push("/")
+          router.push("/dashboard")
         }
       }
     )

@@ -10,9 +10,10 @@ import {
 } from "framer-motion";
 import { Plus, Menu, X, ArrowRight, Activity, ArrowLeft, Facebook, Instagram, Send } from "lucide-react";
 import Lenis from "lenis";
+import { authClient } from "@/lib/auth-client";
 
 // --- Configuration & Variants ---
-const SPRING_TRANSITION_GLO = { type: "spring", stiffness: 100, damping: 20 };
+const SPRING_TRANSITION_GLO = { type: "spring" as const, stiffness: 100, damping: 20 };
 
 const maskedRevealVariant = {
   hidden: { y: 30, opacity: 0 },
@@ -130,6 +131,7 @@ const CustomCursor = () => {
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const { data: session } = authClient.useSession();
 
   return (
     <motion.nav
@@ -150,10 +152,21 @@ const Navbar = () => {
       </div>
 
       <div className="hidden md:flex items-center gap-4">
-        <a href="/register" className="text-sm font-medium hover:opacity-70 transition-opacity">Sign Up</a>
-        <button className="rounded-full bg-white text-black px-6 py-2.5 text-sm font-semibold hover:scale-105 transition-transform">
-          Sign In
-        </button>
+        {session ? (
+          <a
+            href="/dashboard"
+            className="rounded-full bg-white text-black px-6 py-2.5 text-sm font-semibold hover:scale-105 transition-transform flex items-center gap-2"
+          >
+            Go to Dashboard <ArrowRight className="h-4 w-4" />
+          </a>
+        ) : (
+          <>
+            <a href="/register" className="text-sm font-medium hover:opacity-70 transition-opacity">Sign Up</a>
+            <a href="/login" className="rounded-full bg-white text-black px-6 py-2.5 text-sm font-semibold hover:scale-105 transition-transform">
+              Sign In
+            </a>
+          </>
+        )}
       </div>
 
       <button className="md:hidden text-white" onClick={() => setIsOpen(true)}>
@@ -176,10 +189,18 @@ const Navbar = () => {
               <a href="#about" onClick={() => setIsOpen(false)}>Protocol</a>
               <a href="#features" onClick={() => setIsOpen(false)}>Security</a>
               <a href="#docs" onClick={() => setIsOpen(false)}>Developers</a>
-              <a href="#app" onClick={() => setIsOpen(false)}>Sign Up</a>
-              <button className="mt-4 rounded-full bg-[#D9F24F] text-[#1A2406] px-8 py-3 text-lg font-bold">
-                Sign In
-              </button>
+              {session ? (
+                <a href="/dashboard" onClick={() => setIsOpen(false)} className="mt-4 rounded-full bg-[#D9F24F] text-[#1A2406] px-8 py-3 text-lg font-bold">
+                  Go to Dashboard
+                </a>
+              ) : (
+                <>
+                  <a href="/register" onClick={() => setIsOpen(false)}>Sign Up</a>
+                  <button className="mt-4 rounded-full bg-[#D9F24F] text-[#1A2406] px-8 py-3 text-lg font-bold">
+                    Sign In
+                  </button>
+                </>
+              )}
             </div>
           </motion.div>
         )}
@@ -225,7 +246,7 @@ const CalculatorSection = () => {
   const [sliderValue, setSliderValue] = useState(15000);
   const [currency, setCurrency] = useState('INR');
   const maxUsdc = 50000;
-  
+
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSliderValue(Number(e.target.value));
   };
@@ -248,7 +269,7 @@ const CalculatorSection = () => {
   const currentPrefix = prefixes[currency];
 
   return (
-    <motion.section 
+    <motion.section
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, margin: "-100px" }}
@@ -270,16 +291,16 @@ const CalculatorSection = () => {
         </motion.div>
       </div>
 
-      <motion.div 
+      <motion.div
         variants={scaleUpVariant}
         className="flex-1 w-full bg-[#D9F24F] rounded-[40px] p-8 md:p-12 shadow-sm relative overflow-hidden"
       >
         <div className="absolute top-0 right-0 p-4 opacity-20 pointer-events-none text-6xl">✨</div>
-        
+
         <div className="flex items-center justify-between mb-8 border-b border-[#1A2406]/10 pb-4">
           <span className="text-xl font-medium text-[#1A2406] font-jakarta tracking-[-0.04em]">Converter</span>
         </div>
-        
+
         <div className="space-y-4 mb-12">
           <span className="text-sm text-[#1A2406]/70">Amount in Escrow (USDC)</span>
           <div className="text-5xl font-medium text-[#1A2406] flex items-center font-jakarta tabular-nums">
@@ -287,10 +308,10 @@ const CalculatorSection = () => {
             <span className="text-2xl pt-2 pl-2 font-sans">USDC</span>
           </div>
           <div className="relative pt-6">
-            <input 
-              type="range" 
-              min="500" 
-              max={maxUsdc} 
+            <input
+              type="range"
+              min="500"
+              max={maxUsdc}
               step="100"
               onInput={handleSliderChange}
               defaultValue={15000}
@@ -325,7 +346,7 @@ const CalculatorSection = () => {
 const FAQItem = ({ question, answer, isOpen, onClick }: { question: string, answer: string, isOpen: boolean, onClick: () => void }) => {
   return (
     <div className="border-b border-[#D9F24F]/20 py-6">
-      <button 
+      <button
         onClick={onClick}
         className="w-full flex justify-between items-center text-left text-xl md:text-2xl text-[#D9F24F] font-jakarta tracking-[-0.04em] font-medium"
       >
@@ -359,14 +380,14 @@ const FAQItem = ({ question, answer, isOpen, onClick }: { question: string, answ
 export default function Home() {
   const [openFAQ, setOpenFAQ] = useState<number>(0);
   const parallaxRef = useRef(null);
-  
-  const { scrollYProgress } = useScroll({ target: parallaxRef, offset: ["start end", "end start"]});
+
+  const { scrollYProgress } = useScroll({ target: parallaxRef, offset: ["start end", "end start"] });
   const yParallaxFast = useTransform(scrollYProgress, [0, 1], [40, -40]);
   const yParallaxSlow = useTransform(scrollYProgress, [0, 1], [80, -80]);
 
   useEffect(() => {
     const lenis = new Lenis({
-      lerp: 0.08, 
+      lerp: 0.08,
       wheelMultiplier: 0.9,
       smoothWheel: true,
     });
@@ -383,15 +404,15 @@ export default function Home() {
       {/* --- Hero Section --- */}
       <section className="relative min-h-screen pt-32 pb-16 flex flex-col justify-end px-6 md:px-12 bg-[#1A2406] text-white overflow-hidden">
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1639322537228-f710d846310a?q=80&w=2100&auto=format&fit=crop')] bg-cover bg-center opacity-60" />
-        <div 
-          className="absolute inset-0 backdrop-blur-[16px]" 
-          style={{ WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)', maskImage: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)' }} 
+        <div
+          className="absolute inset-0 backdrop-blur-[16px]"
+          style={{ WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)', maskImage: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)' }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#1A2406] via-[#1A2406]/80 to-transparent opacity-90" />
         <div className="absolute top-1/4 right-1/4 w-[600px] h-[600px] bg-[#D9F24F]/20 rounded-full blur-[120px]" />
-        
+
         <div className="relative z-10 max-w-7xl mx-auto w-full">
-          <motion.div 
+          <motion.div
             initial="hidden"
             animate="visible"
             variants={staggerContainer}
@@ -401,7 +422,7 @@ export default function Home() {
             {/* Added lg:-ml-8 to push it to the left on larger screens */}
             <div className="space-y-6 lg:-ml-8">
               <MaskedText className="text-6xl md:text-8xl tracking-[-0.04em] leading-[1.1] font-medium font-jakarta">
-                Trustless Payments <br/> for the Global Digital Workforce.
+                Trustless Payments <br /> for the Global Digital Workforce.
               </MaskedText>
               <MaskedText className="text-lg text-white/70 max-w-md">
                 Secure, autonomous escrow powered by Ethereum smart contracts. Ensure accountability with milestone-based stablecoin payouts.
@@ -415,7 +436,7 @@ export default function Home() {
 
             <motion.div variants={maskedRevealVariant} className="relative w-full flex justify-end">
               {/* Floating Escrow Widget */}
-              <motion.div 
+              <motion.div
                 animate={floatingAnimation}
                 className="bg-white text-[#1A2406] rounded-[24px] p-6 w-80 shadow-2xl relative z-20 will-change-transform"
               >
@@ -432,8 +453,8 @@ export default function Home() {
                   <div className="w-10 bg-[#D9F24F] rounded-t-md h-12" />
                   <div className="w-10 bg-[#1A2406]/20 rounded-t-md h-16" />
                   <div className="flex flex-col gap-1 items-center w-10">
-                     <div className="w-10 bg-[#1A2406] rounded-md h-8" />
-                     <div className="w-10 bg-[#D9F24F] rounded-md h-12" />
+                    <div className="w-10 bg-[#1A2406] rounded-md h-8" />
+                    <div className="w-10 bg-[#D9F24F] rounded-md h-12" />
                   </div>
                   <div className="w-10 bg-[#1A2406] rounded-t-md h-24" />
                 </div>
@@ -450,28 +471,28 @@ export default function Home() {
           Join over 500 cross-border teams already growing with Nexus Escrow.
         </span>
         <div className="w-full overflow-hidden whitespace-nowrap mask-image-linear">
-           <motion.div 
-             animate={{ x: [0, -1000] }} 
-             transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-             className="flex gap-16 items-center px-8"
-           >
-              {[...Array(2)].map((_, i) => (
-                <div key={i} className="flex gap-16 items-center flex-shrink-0 opacity-60 grayscale hover:grayscale-0 hover:opacity-100 transition-all font-jakarta tracking-[-0.04em]">
-                  <span className="text-2xl font-bold flex items-center gap-2"><Activity className="text-gray-400"/> BuilderDao</span>
-                  <span className="text-2xl font-bold font-serif">MetaGuild</span>
-                  <span className="text-2xl font-bold flex items-center gap-1"><div className="w-6 h-6 bg-black rounded-sm transform rotate-45"/> DevNet</span>
-                  <span className="text-2xl font-bold">Node.ai</span>
-                  <span className="text-2xl font-bold flex items-center gap-2"><div className="w-4 h-4 bg-black rotate-45"/> chainlink</span>
-                  <span className="text-2xl font-bold text-gray-800">Nexus.</span>
-                </div>
-              ))}
-           </motion.div>
+          <motion.div
+            animate={{ x: [0, -1000] }}
+            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+            className="flex gap-16 items-center px-8"
+          >
+            {[...Array(2)].map((_, i) => (
+              <div key={i} className="flex gap-16 items-center flex-shrink-0 opacity-60 grayscale hover:grayscale-0 hover:opacity-100 transition-all font-jakarta tracking-[-0.04em]">
+                <span className="text-2xl font-bold flex items-center gap-2"><Activity className="text-gray-400" /> BuilderDao</span>
+                <span className="text-2xl font-bold font-serif">MetaGuild</span>
+                <span className="text-2xl font-bold flex items-center gap-1"><div className="w-6 h-6 bg-black rounded-sm transform rotate-45" /> DevNet</span>
+                <span className="text-2xl font-bold">Node.ai</span>
+                <span className="text-2xl font-bold flex items-center gap-2"><div className="w-4 h-4 bg-black rotate-45" /> chainlink</span>
+                <span className="text-2xl font-bold text-gray-800">Nexus.</span>
+              </div>
+            ))}
+          </motion.div>
         </div>
       </section>
 
       {/* --- Multi-Section / Features --- */}
       <section ref={parallaxRef} className="py-24 px-6 md:px-12 max-w-7xl mx-auto space-y-32">
-        <motion.div 
+        <motion.div
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: "-100px" }}
@@ -492,7 +513,7 @@ export default function Home() {
             </motion.div>
             <MaskedText className="text-gray-600 max-w-md pt-6">
               Experience seamless integration of blockchain technology and finance, built for zero-trust environments.
-              <br/><br/>
+              <br /><br />
               <strong className="text-black">The power of smart contracts</strong>, with none of the manual arbitration. Nexus gives global teams an intuitive platform for verified payouts.
             </MaskedText>
           </div>
@@ -512,13 +533,13 @@ export default function Home() {
                 Manage Escrows <ArrowRight className="h-4 w-4" />
               </button>
             </motion.div>
-            
+
             {/* Dark Green Card with Parallax */}
             <motion.div style={{ y: yParallaxFast }} className="bg-[#1A2406] text-[#D9F24F] rounded-[32px] p-8 flex flex-col justify-between aspect-square shadow-[0px_20px_40px_-10px_rgba(0,0,0,0.3)] will-change-transform">
               <div className="space-y-4">
-                 <div className="bg-[#2D3F0F] rounded-2xl p-4 flex gap-3 text-white w-max">
-                   <div className="bg-[#D9F24F]/20 text-white rounded-lg p-2 text-xs">Verify Payout</div>
-                 </div>
+                <div className="bg-[#2D3F0F] rounded-2xl p-4 flex gap-3 text-white w-max">
+                  <div className="bg-[#D9F24F]/20 text-white rounded-lg p-2 text-xs">Verify Payout</div>
+                </div>
               </div>
               <h3 className="text-2xl font-medium font-jakarta tracking-[-0.04em] leading-tight mt-8">Cross-Border Compliance</h3>
             </motion.div>
@@ -526,7 +547,7 @@ export default function Home() {
         </motion.div>
 
         {/* Access Growth Capital */}
-        <motion.div 
+        <motion.div
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: "-100px" }}
@@ -544,38 +565,44 @@ export default function Home() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <motion.div variants={scaleUpVariant} className="bg-gradient-to-br from-[#E2F4C5] to-[#BEE678] rounded-[40px] p-8 aspect-[4/5] flex flex-col items-center justify-center relative overflow-hidden text-center will-change-transform">
-               <div className="bg-white rounded-3xl p-6 shadow-xl w-[90%] space-y-4">
-                 <h4 className="font-medium font-jakarta tracking-[-0.04em] text-lg text-[#1A2406]">Multi-chain support</h4>
-                 <div className="flex flex-wrap gap-2 justify-center text-xs">
-                    <span className="bg-[#D9F24F]/40 px-3 py-1 rounded-full text-[#1A2406]">Ethereum</span>
-                    <span className="bg-[#1A2406] text-white px-3 py-1 rounded-full">Polygon</span>
-                    <span className="bg-blue-100 text-[#1A2406] px-3 py-1 rounded-full">Arbitrum</span>
-                 </div>
-                 <p className="text-xs text-gray-500 pt-2">Fund your escrows across multiple L2s with zero bridging friction.</p>
-               </div>
+              <div className="bg-white rounded-3xl p-6 shadow-xl w-[90%] space-y-4">
+                <h4 className="font-medium font-jakarta tracking-[-0.04em] text-lg text-[#1A2406]">Multi-chain support</h4>
+                <div className="flex flex-wrap gap-2 justify-center text-xs">
+                  <span className="bg-[#D9F24F]/40 px-3 py-1 rounded-full text-[#1A2406]">Ethereum</span>
+                  <span className="bg-[#1A2406] text-white px-3 py-1 rounded-full">Polygon</span>
+                  <span className="bg-blue-100 text-[#1A2406] px-3 py-1 rounded-full">Arbitrum</span>
+                </div>
+                <p className="text-xs text-gray-500 pt-2">Fund your escrows across multiple L2s with zero bridging friction.</p>
+              </div>
             </motion.div>
 
             <motion.div variants={scaleUpVariant} className="bg-[#EEF1FF] rounded-[40px] p-8 aspect-[4/5] flex flex-col relative overflow-hidden will-change-transform">
-               <h3 className="text-3xl font-medium font-jakarta tracking-[-0.04em] mb-8 text-[#1A2406]">On-chain <br/> Transparency.</h3>
-               <motion.div animate={floatingAnimation} className="bg-white rounded-3xl p-6 shadow-xl w-full mt-auto">
-                 <span className="text-xs text-gray-500">Contract Balance</span>
-                 <div className="text-4xl font-medium tabular-nums font-jakarta text-[#1A2406] mt-1 mb-4">42,500 <span className="text-sm font-normal text-gray-400">USDC Locked</span></div>
-                 <div className="flex gap-4 text-xs mb-4">
-                    <div><span className="inline-block w-2 h-2 bg-[#1A2406] mr-1 tabular-nums"/>Released: 22%</div>
-                    <div><span className="inline-block w-2 h-2 bg-[#1A2406]/40 mr-1 tabular-nums"/>Pending: 63%</div>
-                 </div>
-                 <div className="h-3 w-full flex bg-gray-100 rounded-full overflow-hidden">
-                    <div className="w-[22%] bg-[#1A2406]" />
-                    <div className="w-[63%] bg-[#1A2406]/40" />
-                 </div>
-               </motion.div>
+              <h3 className="text-3xl font-medium font-jakarta tracking-[-0.04em] mb-8 text-[#1A2406]">On-chain <br /> Transparency.</h3>
+              <motion.div animate={floatingAnimation} className="bg-white rounded-3xl p-6 shadow-xl w-full mt-auto">
+                <span className="text-xs text-gray-500">Contract Balance</span>
+                <div className="text-4xl font-medium tabular-nums font-jakarta text-[#1A2406] mt-1 mb-4">42,500 <span className="text-sm font-normal text-gray-400">USDC Locked</span></div>
+                <div className="flex gap-4 text-xs mb-4">
+                  <div><span className="inline-block w-2 h-2 bg-[#1A2406] mr-1 tabular-nums" />Released: 22%</div>
+                  <div><span className="inline-block w-2 h-2 bg-[#1A2406]/40 mr-1 tabular-nums" />Pending: 63%</div>
+                </div>
+                <div className="h-3 w-full flex bg-gray-100 rounded-full overflow-hidden">
+                  <div className="w-[22%] bg-[#1A2406]" />
+                  <div className="w-[63%] bg-[#1A2406]/40" />
+                </div>
+              </motion.div>
             </motion.div>
 
-            <motion.div variants={scaleUpVariant} className="bg-[#1A2406] text-white rounded-[40px] p-8 aspect-[4/5] flex flex-col justify-between relative overflow-hidden group will-change-transform">
-               <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1558494949-ef010cbdcc31?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center opacity-70 group-hover:scale-105 transition-transform duration-1000 ease-in-out" />
-               <div className="absolute inset-0 bg-gradient-to-t from-[#1A2406] to-transparent opacity-80" />
-               <h3 className="text-4xl font-medium font-jakarta tracking-[-0.04em] relative z-10 w-2/3">Trustless Devs</h3>
-               <p className="relative z-10 text-xl font-medium">Guarantee payment to developers immediately upon verified code submission to GitHub.</p>
+            <motion.div
+              variants={scaleUpVariant}
+              className="bg-[#1A2406] text-white rounded-[40px] p-8 aspect-[4/5] flex flex-col justify-between relative group will-change-transform m-2"
+            >
+              {/* Inner clip wrapper — keeps rounded corners clean even during GPU-composited scale */}
+              <div className="absolute inset-0 rounded-[40px] overflow-hidden">
+                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1558494949-ef010cbdcc31?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center opacity-70 group-hover:scale-105 transition-transform duration-1000 ease-in-out" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#1A2406] to-transparent opacity-80" />
+              </div>
+              <h3 className="text-4xl font-medium font-jakarta tracking-[-0.04em] relative z-10 w-2/3">Trustless Devs</h3>
+              <p className="relative z-10 text-xl font-medium">Guarantee payment to developers immediately upon verified code submission to GitHub.</p>
             </motion.div>
           </div>
         </motion.div>
@@ -586,7 +613,7 @@ export default function Home() {
 
       {/* --- FAQ Section --- */}
       <section className="bg-[#1A2406] py-32 px-6 md:px-12 text-[#D9F24F]">
-        <motion.div 
+        <motion.div
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: "-100px" }}
@@ -601,21 +628,21 @@ export default function Home() {
               Clear answers to the most common questions about smart contracts, compliance, and resolution.
             </MaskedText>
           </div>
-          
+
           <motion.div variants={maskedRevealVariant} className="flex flex-col justify-center">
-            <FAQItem 
+            <FAQItem
               question="Smart Contract Security"
               answer="Our escrow smart contracts are fully open-source and have been audited by tier-1 security firms. The funds are non-custodial; neither Nexus nor any third party can access the escrowed stablecoins without the explicit execution of your milestone conditions."
               isOpen={openFAQ === 0}
               onClick={() => setOpenFAQ(openFAQ === 0 ? -1 : 0)}
             />
-            <FAQItem 
+            <FAQItem
               question="Jurisdictional Compliance"
               answer="By utilizing decentralized stablecoins (USDC) and strictly executing programmatic transfers based on on-chain proofs, Nexus Escrow operates agnostically across borders, severely reducing international banking compliance roadblocks."
               isOpen={openFAQ === 1}
               onClick={() => setOpenFAQ(openFAQ === 1 ? -1 : 1)}
             />
-            <FAQItem 
+            <FAQItem
               question="Dispute Resolution via Verification"
               answer="If a deliverable is challenged, the smart contract prevents automatic payout. The dispute is then sent to our decentralized arbitration layer, optionally allowing third-party multisig signers to review the external data (such as accepted GitHub PRs) to resolve the conflict objectively."
               isOpen={openFAQ === 2}
@@ -629,35 +656,35 @@ export default function Home() {
       <section className="relative w-full h-[80vh] min-h-[600px] max-h-[800px] bg-[#1A2406] text-[#D9F24F] overflow-hidden flex flex-col justify-end p-6 md:p-16">
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1519389950473-47ba0277781c?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center md:bg-top opacity-50 mix-blend-luminosity" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#1A2406] via-[#1A2406]/60 to-transparent" />
-        
+
         <div className="relative z-10 w-full max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-end gap-8">
-           <div className="max-w-4xl space-y-6">
-              <MaskedText className="text-xl md:text-2xl font-medium text-[#D9F24F] font-jakarta tracking-[-0.04em]">
-                Alex Chen, Tech Lead at DeFi-Proto
-              </MaskedText>
-              <MaskedText className="text-3xl md:text-5xl lg:text-6xl font-medium leading-[1.15] font-jakarta">
-                “The smart contract automation was flawless. Knowing our developer bounties were secured in escrow allowed us to attract top-tier global talent instantly. Dispute-free and fully autonomous.”
-              </MaskedText>
-           </div>
-           
-           <motion.div variants={maskedRevealVariant} className="flex gap-4 mb-4">
-              <button className="h-14 w-14 rounded-full border border-[#D9F24F]/40 flex items-center justify-center hover:bg-[#D9F24F]/20 hover:scale-105 transition-all text-[#D9F24F]">
-                 <ArrowLeft className="h-5 w-5" />
-              </button>
-              <button className="h-14 w-14 rounded-full border border-[#D9F24F]/40 flex items-center justify-center hover:bg-[#D9F24F]/20 hover:scale-105 transition-all text-[#D9F24F]">
-                 <ArrowRight className="h-5 w-5" />
-              </button>
-           </motion.div>
+          <div className="max-w-4xl space-y-6">
+            <MaskedText className="text-xl md:text-2xl font-medium text-[#D9F24F] font-jakarta tracking-[-0.04em]">
+              Alex Chen, Tech Lead at DeFi-Proto
+            </MaskedText>
+            <MaskedText className="text-3xl md:text-5xl lg:text-6xl font-medium leading-[1.15] font-jakarta">
+              “The smart contract automation was flawless. Knowing our developer bounties were secured in escrow allowed us to attract top-tier global talent instantly. Dispute-free and fully autonomous.”
+            </MaskedText>
+          </div>
+
+          <motion.div variants={maskedRevealVariant} className="flex gap-4 mb-4">
+            <button className="h-14 w-14 rounded-full border border-[#D9F24F]/40 flex items-center justify-center hover:bg-[#D9F24F]/20 hover:scale-105 transition-all text-[#D9F24F]">
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <button className="h-14 w-14 rounded-full border border-[#D9F24F]/40 flex items-center justify-center hover:bg-[#D9F24F]/20 hover:scale-105 transition-all text-[#D9F24F]">
+              <ArrowRight className="h-5 w-5" />
+            </button>
+          </motion.div>
         </div>
       </section>
 
       {/* --- Gradient Wrapper for Bottom Sections --- */}
       <div className="bg-gradient-to-b from-[#FDFCF8] via-[#F4F9D8] to-[#DEF48F] pt-32 pb-6">
-        
+
         {/* --- Speak to Experts --- */}
         <section className="px-6 md:px-12 max-w-4xl mx-auto text-center space-y-8 mb-32">
           <MaskedText className="text-5xl md:text-7xl font-medium font-jakarta tracking-[-0.04em] text-[#1A2406] leading-[1.1]">
-            Speak to our security <br/> engineers
+            Speak to our security <br /> engineers
           </MaskedText>
           <MaskedText className="text-lg text-gray-700 max-w-2xl mx-auto">
             Our team is here to answer your questions, review your contract integration needs, and guide you toward deploying your first secure escrow.
@@ -692,9 +719,9 @@ export default function Home() {
               { title: "Managing Multi-signature Release Events", img: "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?q=80&w=1600&auto=format&fit=crop" }
             ].map((article, i) => (
               <motion.div key={i} variants={scaleUpVariant} className="group relative rounded-[32px] overflow-hidden aspect-[4/5] md:aspect-square flex items-end p-8 text-white cursor-pointer will-change-transform">
-                 <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110 will-change-transform" style={{ backgroundImage: `url(${article.img})` }} />
-                 <div className="absolute inset-0 bg-gradient-to-t from-[#1A2406]/90 via-[#1A2406]/30 to-transparent transition-opacity duration-700 opacity-80 group-hover:opacity-100" />
-                 <h3 className="relative z-10 text-2xl md:text-3xl font-medium font-jakarta tracking-[-0.04em] leading-tight max-w-[90%]">{article.title}</h3>
+                <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110 will-change-transform" style={{ backgroundImage: `url(${article.img})` }} />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#1A2406]/90 via-[#1A2406]/30 to-transparent transition-opacity duration-700 opacity-80 group-hover:opacity-100" />
+                <h3 className="relative z-10 text-2xl md:text-3xl font-medium font-jakarta tracking-[-0.04em] leading-tight max-w-[90%]">{article.title}</h3>
               </motion.div>
             ))}
           </motion.div>
@@ -702,85 +729,85 @@ export default function Home() {
 
         {/* --- New Footer --- */}
         <footer className="px-4 md:px-8 max-w-full pb-8">
-           <div className="bg-[#1A2406] overflow-hidden relative rounded-[48px] p-10 md:p-16 text-[#D9F24F]/70 flex flex-col justify-between min-h-[500px]">
-              
-              <div className="relative z-10 flex flex-col lg:flex-row justify-between gap-16 lg:gap-8">
-                 {/* Left Column */}
-                 <div className="space-y-6 max-w-sm shrink-0">
-                    <div className="flex items-center gap-2 mb-8 text-white">
-                      <Activity className="h-10 w-10 text-white -rotate-45" />
-                      <span className="text-4xl font-bold font-jakarta tracking-[-0.04em] text-white">Nexus</span>
-                    </div>
-                    <p className="text-base font-light text-[#D9F24F]/70 leading-relaxed font-sans">
-                      AI-first ERP powering next-gen finance & accounting. <br/>
-                      General ledger, revenue automation, close management.
-                    </p>
-                    <div className="flex items-center gap-3 pt-6 group cursor-pointer w-fit">
-                      <div className="w-2 h-2 rounded-full bg-[#D9F24F]/50 group-hover:bg-[#D9F24F] transition-colors" />
-                      <span className="text-sm font-medium hover:text-[#D9F24F] transition-colors">More about us</span>
-                    </div>
-                 </div>
+          <div className="bg-[#1A2406] overflow-hidden relative rounded-[48px] p-10 md:p-16 text-[#D9F24F]/70 flex flex-col justify-between min-h-[500px]">
 
-                 {/* Right Column Layout */}
-                 <div className="flex flex-col justify-between lg:items-end w-full space-y-16">
-                    <div className="flex flex-wrap gap-8 lg:gap-12 text-white/90 font-medium text-base font-jakarta tracking-tight">
-                      <a href="#" className="hover:text-[#D9F24F] transition-colors">Service</a>
-                      <a href="#" className="hover:text-[#D9F24F] transition-colors">Members benefits</a>
-                      <a href="#" className="hover:text-[#D9F24F] transition-colors">Products</a>
-                      <a href="#" className="hover:text-[#D9F24F] transition-colors">Contacts.</a>
-                    </div>
-                    {/* Contact & Location Block */}
-                    <div className="w-full lg:w-[60%] grid grid-cols-1 md:grid-cols-2 gap-12 text-sm text-left lg:mr-auto">
-                       <div className="space-y-4">
-                         <h4 className="text-white text-base font-medium font-jakarta tracking-tight">Contact Us</h4>
-                         <div className="space-y-2 text-[#D9F24F]/70 tabular-nums font-mono text-xs md:text-sm">
-                           <p className="hover:text-white transition-colors cursor-pointer">+1 (999) 283-77-44</p>
-                           <p className="hover:text-white transition-colors cursor-pointer font-sans text-sm">hello@Solvcompany.com</p>
-                         </div>
-                       </div>
-                       <div className="space-y-4">
-                         <h4 className="text-white text-base font-medium font-jakarta tracking-tight">Location</h4>
-                         <div className="space-y-2 text-[#D9F24F]/70 tabular-nums font-sans">
-                           <p>483920, Moscow,</p>
-                           <p>Myasnitskaya 21/2/4, Office 13</p>
-                         </div>
-                       </div>
-                    </div>
-                 </div>
+            <div className="relative z-10 flex flex-col lg:flex-row justify-between gap-16 lg:gap-8">
+              {/* Left Column */}
+              <div className="space-y-6 max-w-sm shrink-0">
+                <div className="flex items-center gap-2 mb-8 text-white">
+                  <Activity className="h-10 w-10 text-white -rotate-45" />
+                  <span className="text-4xl font-bold font-jakarta tracking-[-0.04em] text-white">Nexus</span>
+                </div>
+                <p className="text-base font-light text-[#D9F24F]/70 leading-relaxed font-sans">
+                  AI-first ERP powering next-gen finance & accounting. <br />
+                  General ledger, revenue automation, close management.
+                </p>
+                <div className="flex items-center gap-3 pt-6 group cursor-pointer w-fit">
+                  <div className="w-2 h-2 rounded-full bg-[#D9F24F]/50 group-hover:bg-[#D9F24F] transition-colors" />
+                  <span className="text-sm font-medium hover:text-[#D9F24F] transition-colors">More about us</span>
+                </div>
               </div>
 
-              {/* Bottom Row */}
-              <div className="relative z-10 flex flex-col md:flex-row justify-between items-center sm:items-end gap-12 mt-20 pt-1 border-t border-[#D9F24F]/10 text-sm">
-                 <div className="flex gap-4 pt-10">
-                   <a href="#" aria-label="Facebook" className="w-12 h-12 bg-[#FDFCF8] text-[#1A2406] rounded-full flex items-center justify-center hover:scale-110 hover:-rotate-12 transition-all shadow-lg">
-                     <Facebook fill="currentColor" className="w-5 h-5" />
-                   </a>
-                   <a href="#" aria-label="Instagram" className="w-12 h-12 bg-[#FDFCF8] text-[#1A2406] rounded-full flex items-center justify-center hover:scale-110 hover:rotate-12 transition-all shadow-lg">
-                     <Instagram className="w-5 h-5" />
-                   </a>
-                   <a href="#" aria-label="Telegram" className="w-12 h-12 bg-[#FDFCF8] text-[#1A2406] rounded-full flex items-center justify-center hover:scale-110 hover:rotate-45 transition-all shadow-lg pl-0.5 pt-0.5">
-                     <Send className="w-5 h-5" />
-                   </a>
-                 </div>
-
-                 <div className="text-center space-y-1 opacity-70 flex-col flex leading-loose order-last md:order-none tabular-nums font-sans pt-10">
-                    <span>© 2025 — Copyright</span>
-                    <span>All Rights reserved</span>
-                 </div>
-
-                 <div className="flex flex-col md:items-end md:justify-end gap-3 text-white pt-10">
-                    <span className="text-[#D9F24F]/70 text-xs text-center md:text-right w-full">Languages</span>
-                    <div className="flex gap-4 text-base tracking-wide font-jakarta">
-                      <button className="font-semibold text-white">En</button>
-                      <button className="text-white/50 hover:text-white transition-colors">Es</button>
-                      <button className="text-white/50 hover:text-white transition-colors">Fr</button>
-                      <button className="text-white/50 hover:text-white transition-colors">De</button>
-                      <button className="text-white/50 hover:text-white transition-colors">Ru</button>
+              {/* Right Column Layout */}
+              <div className="flex flex-col justify-between lg:items-end w-full space-y-16">
+                <div className="flex flex-wrap gap-8 lg:gap-12 text-white/90 font-medium text-base font-jakarta tracking-tight">
+                  <a href="#" className="hover:text-[#D9F24F] transition-colors">Service</a>
+                  <a href="#" className="hover:text-[#D9F24F] transition-colors">Members benefits</a>
+                  <a href="#" className="hover:text-[#D9F24F] transition-colors">Products</a>
+                  <a href="#" className="hover:text-[#D9F24F] transition-colors">Contacts.</a>
+                </div>
+                {/* Contact & Location Block */}
+                <div className="w-full lg:w-[60%] grid grid-cols-1 md:grid-cols-2 gap-12 text-sm text-left lg:mr-auto">
+                  <div className="space-y-4">
+                    <h4 className="text-white text-base font-medium font-jakarta tracking-tight">Contact Us</h4>
+                    <div className="space-y-2 text-[#D9F24F]/70 tabular-nums font-mono text-xs md:text-sm">
+                      <p className="hover:text-white transition-colors cursor-pointer">+1 (999) 283-77-44</p>
+                      <p className="hover:text-white transition-colors cursor-pointer font-sans text-sm">hello@Solvcompany.com</p>
                     </div>
-                 </div>
+                  </div>
+                  <div className="space-y-4">
+                    <h4 className="text-white text-base font-medium font-jakarta tracking-tight">Location</h4>
+                    <div className="space-y-2 text-[#D9F24F]/70 tabular-nums font-sans">
+                      <p>483920, Moscow,</p>
+                      <p>Myasnitskaya 21/2/4, Office 13</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Row */}
+            <div className="relative z-10 flex flex-col md:flex-row justify-between items-center sm:items-end gap-12 mt-20 pt-1 border-t border-[#D9F24F]/10 text-sm">
+              <div className="flex gap-4 pt-10">
+                <a href="#" aria-label="Facebook" className="w-12 h-12 bg-[#FDFCF8] text-[#1A2406] rounded-full flex items-center justify-center hover:scale-110 hover:-rotate-12 transition-all shadow-lg">
+                  <Facebook fill="currentColor" className="w-5 h-5" />
+                </a>
+                <a href="#" aria-label="Instagram" className="w-12 h-12 bg-[#FDFCF8] text-[#1A2406] rounded-full flex items-center justify-center hover:scale-110 hover:rotate-12 transition-all shadow-lg">
+                  <Instagram className="w-5 h-5" />
+                </a>
+                <a href="#" aria-label="Telegram" className="w-12 h-12 bg-[#FDFCF8] text-[#1A2406] rounded-full flex items-center justify-center hover:scale-110 hover:rotate-45 transition-all shadow-lg pl-0.5 pt-0.5">
+                  <Send className="w-5 h-5" />
+                </a>
               </div>
 
-           </div>
+              <div className="text-center space-y-1 opacity-70 flex-col flex leading-loose order-last md:order-none tabular-nums font-sans pt-10">
+                <span>© 2025 — Copyright</span>
+                <span>All Rights reserved</span>
+              </div>
+
+              <div className="flex flex-col md:items-end md:justify-end gap-3 text-white pt-10">
+                <span className="text-[#D9F24F]/70 text-xs text-center md:text-right w-full">Languages</span>
+                <div className="flex gap-4 text-base tracking-wide font-jakarta">
+                  <button className="font-semibold text-white">En</button>
+                  <button className="text-white/50 hover:text-white transition-colors">Es</button>
+                  <button className="text-white/50 hover:text-white transition-colors">Fr</button>
+                  <button className="text-white/50 hover:text-white transition-colors">De</button>
+                  <button className="text-white/50 hover:text-white transition-colors">Ru</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
         </footer>
 
       </div>
