@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { motion, AnimatePresence } from "framer-motion";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
 import {
@@ -29,6 +30,10 @@ import {
   ShieldCheck,
   Wallet,
   Zap,
+  ChevronRight,
+  ShieldAlert,
+  Gavel,
+  AlertCircle
 } from "lucide-react";
 import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { sepolia } from "thirdweb/chains";
@@ -51,6 +56,26 @@ import {
   type OnchainProject,
 } from "@/lib/escrow";
 import { thirdwebClient } from "@/lib/thirdweb-client";
+
+// ─── Animation Variants ───
+const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 };
+const HOVER_SCALE = { scale: 1.01, transition: SPRING };
+const BUTTON_PRESS = { scale: 0.98 };
+
+const maskedReveal = {
+  hidden: { y: 12, opacity: 0 },
+  visible: { y: 0, opacity: 1, transition: { type: "spring" as const, stiffness: 120, damping: 20 } },
+};
+
+const stagger = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 15 },
+  visible: { opacity: 1, y: 0, transition: SPRING }
+};
 
 /* ─── Types ────────────────────────────────────────────────────────────── */
 
@@ -112,6 +137,7 @@ export default function AgreementsPage() {
   const [releasingProjectId, setReleasingProjectId] = useState<bigint | null>(null);
   const [releaseAmount, setReleaseAmount] = useState("");
   const [isReleasing, setIsReleasing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"incoming" | "outgoing">("incoming");
 
   const [formData, setFormData] = useState({
     title: "",
@@ -399,524 +425,492 @@ export default function AgreementsPage() {
 
   /* ─── Status Badge Colors ────────────────────────────────────────── */
 
-  const getStatusColor = (status: string) => {
+  const getStatusStyle = (status: string) => {
     switch (status.toUpperCase()) {
       case "PENDING":
         return "bg-amber-50 text-amber-700 border-amber-200";
       case "ACTIVE":
-        return "bg-blue-50 text-blue-700 border-blue-200";
+        return "bg-[#D9F24F]/20 text-[#1A2406] border-[#D9F24F]/30";
       case "COMPLETED":
         return "bg-emerald-50 text-emerald-700 border-emerald-200";
       case "CANCELLED":
         return "bg-red-50 text-red-700 border-red-200";
+      case "FUNDED":
+        return "bg-[#D9F24F]/20 text-[#1A2406] border-[#D9F24F]/30";
       default:
         return "bg-slate-50 text-slate-600 border-slate-200";
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status.toUpperCase()) {
+      case "PENDING": return <Clock className="w-3.5 h-3.5" />;
+      case "ACTIVE": return <Zap className="w-3.5 h-3.5" />;
+      case "COMPLETED": return <CheckCircle2 className="w-3.5 h-3.5" />;
+      case "CANCELLED": return <AlertCircle className="w-3.5 h-3.5" />;
+      case "FUNDED": return <ShieldCheck className="w-3.5 h-3.5" />;
+      default: return <Clock className="w-3.5 h-3.5" />;
     }
   };
 
   /* ─── Sub-components ─────────────────────────────────────────────── */
 
   const AgreementCard = ({ agreement, type }: { agreement: Agreement; type: "incoming" | "outgoing" }) => (
-    <Card className="group relative overflow-hidden border border-slate-200 bg-white transition-all duration-300 hover:shadow-xl hover:shadow-slate-200/50 hover:-translate-y-0.5">
-      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-0 transition-opacity group-hover:opacity-100" />
-      <CardHeader className="pb-3">
-        <div className="flex justify-between items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                <FileText className="w-4 h-4 text-white" />
+    <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
+      <Card className="group relative bg-white/40 backdrop-blur-xl border border-white/60 rounded-[28px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:border-[#1A2406]/10 transition-all duration-500">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/30 to-transparent pointer-events-none" />
+        
+        <CardHeader className="pb-3 relative z-10">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 ${getStatusStyle(agreement.status)}`}>
+                  {getStatusIcon(agreement.status)}
+                  {agreement.status}
+                </Badge>
+                <span className="text-[10px] font-mono text-[#1A2406]/20 font-bold uppercase tracking-widest">#{agreement.id.slice(-6)}</span>
               </div>
-              <span className="truncate">{agreement.title}</span>
-            </CardTitle>
-            <CardDescription className="mt-2 text-xs">
-              {type === "incoming"
-                ? `From: ${agreement.creator.name} (${agreement.creator.email})`
-                : `To: ${agreement.receiver.name} (${agreement.receiver.email})`}
-            </CardDescription>
+              <CardTitle className="text-lg font-jakarta font-bold text-[#1A2406] tracking-tight mt-2 flex items-center gap-2">
+                {agreement.title}
+                <ChevronRight className="w-4 h-4 text-[#1A2406]/10 group-hover:translate-x-1 transition-transform" />
+              </CardTitle>
+            </div>
+            <div className="p-2.5 bg-white/80 rounded-xl border border-white shadow-sm shrink-0">
+              <FileText className="w-5 h-5 text-[#1A2406]" />
+            </div>
           </div>
-          <Badge variant="outline" className={`${getStatusColor(agreement.status)} text-xs shrink-0`}>
-            {agreement.status}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3 pt-0">
-        {agreement.description && (
-          <p className="text-sm text-slate-500 line-clamp-2">{agreement.description}</p>
-        )}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-xl bg-slate-50 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Total</p>
-            <p className="text-lg font-bold text-slate-900 mt-0.5">
-              {agreement.amount} <span className="text-xs font-medium text-slate-400">{agreement.currency}</span>
+          <CardDescription className="text-[11px] font-medium text-[#1A2406]/40 mt-1">
+            {type === "incoming"
+              ? <>From: <span className="text-[#1A2406]">{agreement.creator.name}</span></>
+              : <>To: <span className="text-[#1A2406]">{agreement.receiver.name}</span></>}
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="space-y-4 relative z-10">
+          {agreement.description && (
+            <p className="text-sm text-[#1A2406]/70 leading-relaxed line-clamp-2 italic font-serif">
+              "{agreement.description}"
             </p>
+          )}
+          
+          <div className="grid grid-cols-2 gap-4 pb-2">
+            <div className="rounded-xl bg-slate-50/50 p-3 border border-black/[0.02]">
+              <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none mb-1.5">Escrowed</p>
+              <p className="text-lg font-bold text-[#1A2406]">
+                {agreement.amount} <span className="text-[10px] text-[#1A2406]/40 uppercase">{agreement.currency}</span>
+              </p>
+            </div>
+            <div className="rounded-xl bg-slate-50/50 p-3 border border-black/[0.02]">
+              <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none mb-1.5">Milestones</p>
+              <p className="text-lg font-bold text-[#1A2406]">{agreement.milestones.length}</p>
+            </div>
           </div>
-          <div className="rounded-xl bg-slate-50 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Milestones</p>
-            <p className="text-lg font-bold text-slate-900 mt-0.5">{agreement.milestones.length}</p>
+          
+          <div className="pt-3 border-t border-white/40 flex items-center justify-between">
+            <span className="text-[10px] font-medium text-[#1A2406]/30 flex items-center gap-1.5">
+              <Clock className="w-3 h-3" />
+              {new Date(agreement.createdAt).toLocaleDateString()}
+            </span>
+            <button className="text-[10px] font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#1A2406] transition-colors flex items-center gap-1">
+              View Details <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 pt-1">
-          <Clock className="w-3 h-3" />
-          Created {new Date(agreement.createdAt).toLocaleDateString()}
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </motion.div>
   );
 
   const ProjectCard = ({ project }: { project: OnchainProject }) => {
     const isExpanded = releasingProjectId === project.projectId;
+    const status = project.isCompleted ? "COMPLETED" : project.isFunded ? "FUNDED" : "PENDING";
+    
     return (
-      <Card className="group relative overflow-hidden border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/30 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-100/60 hover:-translate-y-0.5">
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-400 to-teal-500" />
-        <CardContent className="py-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-                <ShieldCheck className="w-4 h-4 text-white" />
+      <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
+        <Card className="group relative bg-[#1A2406] text-white rounded-[28px] overflow-hidden shadow-[0_20px_40px_rgba(26,36,6,0.1)] border border-white/5 transition-all duration-500">
+          <div className="absolute inset-0 bg-gradient-to-tr from-[#D9F24F]/5 via-transparent to-transparent pointer-events-none opacity-50" />
+          
+          <CardHeader className="pb-3 relative z-10">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-[#D9F24F] rounded-xl shadow-[0_0_20px_rgba(217,242,79,0.2)]">
+                  <ShieldCheck className="w-4 h-4 text-[#1A2406]" />
+                </div>
+                <p className="font-jakarta font-bold text-white tracking-tight">Project #{project.projectId.toString()}</p>
               </div>
-              <p className="font-bold text-slate-900">Project #{project.projectId.toString()}</p>
+              <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase border-none ${getStatusStyle(status)}`}>
+                {status}
+              </Badge>
             </div>
-            <Badge
-              variant={project.isCompleted ? "default" : project.isFunded ? "default" : "secondary"}
-              className={
-                project.isCompleted
-                  ? "bg-slate-100 text-slate-700"
-                  : project.isFunded
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-amber-100 text-amber-700"
-              }
-            >
-              {project.isCompleted ? "Completed" : project.isFunded ? "Funded" : "Pending"}
-            </Badge>
-          </div>
+          </CardHeader>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-white/80 border border-emerald-100 p-3">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Escrowed</p>
-              <p className="text-lg font-bold text-slate-900 mt-0.5">
-                {formatPusdAmount(project.amount)} <span className="text-xs text-slate-400">PUSD</span>
-              </p>
+          <CardContent className="space-y-4 relative z-10">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-[20px] bg-white/5 border border-white/5 p-4">
+                <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest leading-none mb-2">Total Locked</p>
+                <p className="text-xl font-bold text-white">
+                  {formatPusdAmount(project.amount)} <span className="text-[10px] text-white/40 uppercase">PUSD</span>
+                </p>
+              </div>
+              <div className="rounded-[20px] bg-white/5 border border-white/5 p-4">
+                <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest leading-none mb-2">Freelancer</p>
+                <p className="text-xs font-mono font-bold text-[#D9F24F] mt-1 truncate">
+                  {shortAddress(project.freelancer)}
+                </p>
+              </div>
             </div>
-            <div className="rounded-xl bg-white/80 border border-emerald-100 p-3">
-              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Freelancer</p>
-              <p className="text-sm font-mono font-medium text-slate-700 mt-1.5">
-                {shortAddress(project.freelancer)}
-              </p>
-            </div>
-          </div>
 
-          <p className="text-[11px] text-slate-400 font-mono">
-            Vault: {shortAddress(ESCROW_CONTRACT_ADDRESS)}
-          </p>
-
-          {/* Release Milestone Section */}
-          {project.isFunded && !project.isCompleted && (
-            <div className="pt-2 space-y-2">
-              {isExpanded ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Send className="w-4 h-4 text-emerald-600" />
-                    <p className="text-sm font-semibold text-emerald-800">Release Milestone</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor={`release-${project.projectId}`} className="text-xs text-emerald-700">
-                      PUSD Amount to Release
-                    </Label>
-                    <Input
-                      id={`release-${project.projectId}`}
-                      type="number"
-                      placeholder="e.g. 50"
-                      step="0.01"
-                      value={releaseAmount}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReleaseAmount(e.target.value)}
-                      className="bg-white border-emerald-200 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div className="flex gap-2">
+            {/* Release Milestone Section */}
+            {project.isFunded && !project.isCompleted && (
+              <div className="pt-2">
+                {isExpanded ? (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-4"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Send className="w-4 h-4 text-[#D9F24F]" />
+                      <p className="text-sm font-bold text-white">Release Payout</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold uppercase tracking-widest text-white/40">Amount to Release (PUSD)</Label>
+                      <Input
+                        type="number"
+                        placeholder="0.00"
+                        step="0.01"
+                        value={releaseAmount}
+                        onChange={(e) => setReleaseAmount(e.target.value)}
+                        className="bg-white/5 border-white/10 rounded-xl text-white h-11 focus:ring-[#D9F24F]/20"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleReleaseMilestone(project.projectId)}
+                        disabled={isReleasing}
+                        className="flex-1 bg-[#D9F24F] text-[#1A2406] hover:bg-[#c4db47] font-bold rounded-xl"
+                      >
+                        {isReleasing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Release"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setReleasingProjectId(null);
+                          setReleaseAmount("");
+                        }}
+                        className="border-white/10 text-white hover:bg-white/5 rounded-xl"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div whileTap={BUTTON_PRESS}>
                     <Button
-                      size="sm"
-                      onClick={() => handleReleaseMilestone(project.projectId)}
-                      disabled={isReleasing}
-                      className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white"
-                    >
-                      {isReleasing ? (
-                        <Loader2 className="mr-1.5 w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Zap className="mr-1.5 w-3.5 h-3.5" />
-                      )}
-                      {isReleasing ? "Releasing…" : "Confirm Release"}
-                    </Button>
-                    <Button
-                      size="sm"
                       variant="outline"
                       onClick={() => {
-                        setReleasingProjectId(null);
+                        setReleasingProjectId(project.projectId);
                         setReleaseAmount("");
                       }}
-                      className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      className="w-full border-white/10 text-white hover:bg-[#D9F24F] hover:text-[#1A2406] rounded-xl h-11 text-xs font-bold uppercase tracking-widest transition-all"
                     >
-                      Cancel
+                      <Zap className="mr-2 w-3.5 h-3.5" />
+                      Release Milestone
                     </Button>
-                  </div>
-                </div>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setReleasingProjectId(project.projectId);
-                    setReleaseAmount("");
-                  }}
-                  className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-all"
-                >
-                  <ArrowUpRight className="mr-1.5 w-3.5 h-3.5" />
-                  Release Milestone
-                </Button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  </motion.div>
+                )}
+              </div>
+            )}
+            
+            <p className="text-[9px] text-white/20 font-mono text-center pt-2">
+              Vault Protection: {shortAddress(ESCROW_CONTRACT_ADDRESS)}
+            </p>
+          </CardContent>
+        </Card>
+      </motion.div>
     );
   };
 
-  /* ─── Render ─────────────────────────────────────────────────────── */
+  const tabs = [
+    { id: "incoming", label: "Incoming", count: incomingAgreements.length },
+    { id: "outgoing", label: "Outgoing", count: outgoingAgreements.length },
+  ];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in zoom-in duration-500">
-      {/* ── Wallet Connection Banner ─── */}
-      <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white shadow-2xl shadow-indigo-950/20">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/15 via-transparent to-transparent" />
-        <div className="absolute top-4 right-4 w-24 h-24 rounded-full bg-indigo-500/10 blur-2xl" />
-        <CardHeader className="relative z-10">
-          <CardTitle className="flex items-center gap-2.5 text-lg">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-              <Wallet className="w-5 h-5 text-white" />
+    <motion.div
+      variants={stagger}
+      initial="hidden"
+      animate="visible"
+      className="mx-auto max-w-6xl space-y-10 pt-2 pb-12"
+    >
+      {/* ── Wallet Banner (Dashboard Style) ── */}
+      <motion.div variants={maskedReveal} className="relative bg-[#1A2406] text-white rounded-[32px] p-8 shadow-2xl shadow-[#1A2406]/20 overflow-hidden group">
+        <div className="absolute inset-0 bg-gradient-to-tr from-[#D9F24F]/10 via-transparent to-transparent opacity-50" />
+        <div className="absolute top-0 right-0 p-8 opacity-5">
+          <ShieldCheck className="w-32 h-32 text-[#D9F24F]" />
+        </div>
+        
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-[#D9F24F] rounded-xl shadow-[0_0_20px_rgba(217,242,79,0.4)] transition-transform group-hover:scale-110">
+                <Wallet className="w-5 h-5 text-[#1A2406]" />
+              </div>
+              <CardTitle className="text-xl font-jakarta font-bold tracking-tight">Smart Settlement Protocol</CardTitle>
             </div>
-            PayCrow Smart Escrow
-          </CardTitle>
-          <CardDescription className="text-indigo-200/70 text-sm">
-            Connect wallet on Sepolia · Sign PUSD permit · Lock funds in one flow
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="relative z-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <ConnectButton
-            client={thirdwebClient}
-            chain={sepolia}
-            accountAbstraction={{
-              chain: sepolia,
-              sponsorGas: true,
-            }}
-            connectButton={{
-              label: "Connect Smart Wallet",
-            }}
-          />
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className={`${txStepMeta[txStep].color} border text-xs font-medium`}>
-              {txStepMeta[txStep].label}
-            </Badge>
-            {smartAccountAddress && (
-              <Badge variant="outline" className="text-indigo-200 border-indigo-400/40 text-xs">
-                SA: {shortAddress(smartAccountAddress)}
-              </Badge>
-            )}
-            {permitOwnerAddress && (
-              <Badge variant="outline" className="text-indigo-200 border-indigo-400/40 text-xs">
-                EOA: {shortAddress(permitOwnerAddress)}
-              </Badge>
-            )}
-            <Badge
-              variant="outline"
-              className={`text-xs ${isSmartAccountMode ? "text-emerald-300 border-emerald-400/40" : "text-slate-300 border-slate-500/40"}`}
-            >
-              {isSmartAccountMode ? "AA Mode" : "EOA Mode"}
-            </Badge>
+            <CardDescription className="text-white/40 text-sm font-medium">
+              EIP-2612 Permit-enabled Escrow • Sepolia Testnet Active
+            </CardDescription>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* ── Header + Create Button ─── */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900 font-jakarta">
-            Agreements
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <ConnectButton
+              client={thirdwebClient}
+              chain={sepolia}
+              accountAbstraction={{ chain: sepolia, sponsorGas: true }}
+              connectButton={{ label: "Authenticate Wallet" }}
+            />
+            
+            <div className="flex flex-wrap justify-center gap-2">
+              <Badge variant="outline" className={`${txStepMeta[txStep].color} border-none rounded-full px-3 py-1 shadow-sm`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-current mr-2 animate-pulse" />
+                {txStepMeta[txStep].label}
+              </Badge>
+              {isSmartAccountMode && (
+                <Badge variant="outline" className="bg-[#D9F24F] text-[#1A2406] border-none rounded-full px-3 py-1 font-bold">
+                  AA Mode
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* ── Header Section ── */}
+      <motion.div variants={maskedReveal} className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 px-1">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="bg-[#1A2406] text-[#D9F24F] text-[10px] font-bold tracking-[0.2em] px-3 py-1.5 rounded-full border border-[#D9F24F]/20 flex items-center gap-1.5 uppercase leading-none">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              PayCrow Secure Escrow
+            </span>
+          </div>
+          <h1 className="font-jakarta text-4xl tracking-[-0.04em] text-[#1A2406]">
+            Agreements <span className="font-light text-[#1A2406]/40">& Ledgers</span>
           </h1>
-          <p className="text-slate-500 mt-1.5 text-sm">
-            Create milestone-based escrow agreements and manage payouts.
+          <p className="font-sans text-[#1A2406]/30 text-sm font-medium">
+            Manage your on-chain milestone payouts and document digital contracts.
           </p>
         </div>
+        
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="shrink-0 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-lg shadow-indigo-500/25 transition-all hover:shadow-xl hover:shadow-indigo-500/30">
-              <Plus className="mr-2 w-4 h-4" />
-              Create Agreement
-            </Button>
+            <motion.div whileHover={HOVER_SCALE} whileTap={BUTTON_PRESS}>
+              <button className="rounded-xl bg-[#1A2406] text-white px-6 py-3.5 text-xs font-bold tracking-tight flex items-center gap-2 shadow-xl shadow-[#1A2406]/10">
+                <Plus className="w-4 h-4 text-[#D9F24F]" />
+                Create New Agreement
+              </button>
+            </motion.div>
           </DialogTrigger>
-
-          {/* ── Create Dialog ─── */}
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto border-0 bg-white shadow-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-lg">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                  <Zap className="w-4 h-4 text-white" />
-                </div>
-                Create & Fund Agreement
-              </DialogTitle>
-              <DialogDescription className="text-sm">
-                Signs a PUSD permit and calls <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded">createAndFundAgreement</code> on PayCrowEscrow in one step.
+          
+          <DialogContent className="max-w-2xl bg-white border border-black/5 rounded-2xl shadow-xl overflow-hidden p-0">
+            <div className="bg-[#1A2406] p-6 text-white relative">
+              <div className="absolute top-0 right-0 p-6 opacity-10">
+                <Gavel className="w-16 h-16" />
+              </div>
+              <DialogTitle className="text-xl font-jakarta font-bold tracking-tight">Lock Funds in Escrow</DialogTitle>
+              <DialogDescription className="text-white/40 text-[11px] font-medium uppercase tracking-[0.05em] mt-0.5">
+                Funds are held by the Nexus Smart Vault until released.
               </DialogDescription>
-            </DialogHeader>
+            </div>
 
-            <div className="space-y-5 pt-2">
-              {/* Wallet Info */}
-              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-2">
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="font-semibold text-slate-700">Smart Account:</span>
-                  <span className="font-mono text-slate-500">{smartAccountAddress ? shortAddress(smartAccountAddress) : "Not connected"}</span>
+            <div className="p-6 space-y-6">
+              {/* Wallet Context Info */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-black/[0.05] bg-slate-50/50 p-3">
+                  <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-widest leading-none mb-2">Smart Account</p>
+                  <p className="text-[11px] font-mono font-bold text-[#1A2406]">{smartAccountAddress ? shortAddress(smartAccountAddress) : "Disconnected"}</p>
                 </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-2 h-2 rounded-full bg-indigo-400" />
-                  <span className="font-semibold text-slate-700">Permit/Funding EOA:</span>
-                  <span className="font-mono text-slate-500">{permitOwnerAddress ? shortAddress(permitOwnerAddress) : "Not available"}</span>
+                <div className="rounded-xl border border-black/[0.05] bg-slate-50/50 p-3">
+                  <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-widest leading-none mb-2">Funding EOA</p>
+                  <p className="text-[11px] font-mono font-bold text-[#1A2406]">{permitOwnerAddress ? shortAddress(permitOwnerAddress) : "Disconnected"}</p>
                 </div>
-                {isSmartAccountMode && (
-                  <p className="text-[11px] text-indigo-600 mt-1">
-                    These addresses differ in ERC-4337 mode. Permit and funding use the EOA address.
-                  </p>
-                )}
               </div>
 
-              {/* Form Fields */}
-              <div className="space-y-2">
-                <Label htmlFor="title" className="text-sm font-semibold">Title *</Label>
-                <Input
-                  id="title"
-                  type="text"
-                  placeholder="e.g., Mobile App Design"
-                  value={formData.title}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, title: e.target.value })}
-                  className="border-slate-200 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="description" className="text-sm font-semibold">Description</Label>
-                <Input
-                  id="description"
-                  type="text"
-                  placeholder="Project summary"
-                  value={formData.description}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setFormData({ ...formData, description: e.target.value })
-                  }
-                  className="border-slate-200 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="freelancerAddress" className="text-sm font-semibold">Freelancer Wallet *</Label>
-                  <Input
-                    id="freelancerAddress"
-                    type="text"
-                    placeholder="0x..."
-                    value={formData.freelancerAddress}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setFormData({ ...formData, freelancerAddress: e.target.value })
-                    }
-                    className="font-mono text-sm border-slate-200 focus:ring-indigo-500"
-                  />
+                  <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Agreement Title *</Label>
+                  <Input placeholder="Mobile App Design" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="rounded-lg h-11 border-black/[0.1]" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="amount" className="text-sm font-semibold">PUSD Amount *</Label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <Input
-                      id="amount"
-                      type="number"
-                      placeholder="100"
-                      step="0.01"
-                      value={formData.amount}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, amount: e.target.value })}
-                      className="pl-9 border-slate-200 focus:ring-indigo-500"
-                    />
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Freelancer Wallet *</Label>
+                    <Input placeholder="0x..." value={formData.freelancerAddress} onChange={(e) => setFormData({ ...formData, freelancerAddress: e.target.value })} className="rounded-lg h-11 font-mono text-xs border-black/[0.1]" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Freelancer Email *</Label>
+                    <Input type="email" placeholder="user@example.com" value={formData.receiverEmail} onChange={(e) => setFormData({ ...formData, receiverEmail: e.target.value })} className="rounded-lg h-11 border-black/[0.1]" />
                   </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">PUSD Total Amount *</Label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#1A2406]/30" />
+                      <Input type="number" placeholder="500" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} className="pl-8 rounded-lg h-11 border-black/[0.1]" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Target Completion *</Label>
+                    <Input type="date" value={formData.dueDate} onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })} className="rounded-lg h-11 border-black/[0.1]" />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="dueDate" className="text-sm font-semibold">Due Date *</Label>
-                  <Input
-                    id="dueDate"
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, dueDate: e.target.value })}
-                    className="border-slate-200 focus:ring-indigo-500"
+                  <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Project Narration (Optional)</Label>
+                  <textarea 
+                    className="w-full rounded-lg border border-black/[0.1] bg-white p-3 text-sm min-h-[60px] outline-none focus:ring-1 focus:ring-[#1A2406]/10" 
+                    value={formData.description} 
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Briefly state deliverables and scope..."
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="receiverEmail" className="text-sm font-semibold">Freelancer Email</Label>
-                  <Input
-                    id="receiverEmail"
-                    type="email"
-                    placeholder="freelancer@example.com"
-                    value={formData.receiverEmail}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setFormData({ ...formData, receiverEmail: e.target.value })
-                    }
-                    className="border-slate-200 focus:ring-indigo-500"
-                  />
-                </div>
               </div>
 
-              {/* Progress Stepper */}
-              <div className="rounded-xl border border-slate-100 bg-slate-50/30 p-4">
+              {/* Progress Stepper Styled like Tickets */}
+              <div className="bg-[#1A2406]/[0.02] border border-black/[0.04] rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-3">
-                  <Zap className="w-4 h-4 text-indigo-600" />
-                  <span className="text-sm font-semibold text-slate-800">Transaction Progress</span>
+                  <Zap className="w-3.5 h-3.5 text-[#1A2406]" />
+                  <span className="text-[11px] font-bold uppercase text-[#1A2406] tracking-widest">Transaction Pipeline</span>
                 </div>
-                <p className="text-xs text-slate-500 mb-3">{txStepDescription}</p>
-                <div className="grid gap-2 md:grid-cols-3">
+                <p className="text-[11px] font-medium text-[#1A2406]/40 mb-3">{txStepDescription}</p>
+                <div className="grid grid-cols-3 gap-2">
                   {(["signing", "funding", "verified"] as const).map((step, i) => {
                     const isActive = txStep === step;
-                    const isPast =
-                      (step === "signing" && ["funding", "verified"].includes(txStep)) ||
-                      (step === "funding" && txStep === "verified");
+                    const isPast = (step === "signing" && ["funding", "verified"].includes(txStep)) || (step === "funding" && txStep === "verified");
                     return (
-                      <div
-                        key={step}
-                        className={`rounded-lg px-3 py-2.5 text-xs font-medium transition-all duration-300 flex items-center gap-2 ${isActive
-                          ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200"
-                          : isPast
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-white text-slate-400 border border-slate-100"
-                          }`}
-                      >
-                        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${isActive
-                          ? "bg-indigo-600 text-white"
-                          : isPast
-                            ? "bg-emerald-500 text-white"
-                            : "bg-slate-200 text-slate-500"
-                          }`}>
+                      <div key={step} className={`rounded-lg p-2.5 text-[10px] font-bold uppercase tracking-tight transition-all duration-300 flex items-center gap-2 ${isActive ? 'bg-[#1A2406] text-[#D9F24F]' : isPast ? 'bg-[#D9F24F]/20 text-[#1A2406]' : 'bg-slate-100 text-slate-300'}`}>
+                        <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${isActive ? 'bg-[#D9F24F] text-[#1A2406]' : isPast ? 'bg-[#1A2406] text-[#D9F24F]' : 'bg-slate-200'}`}>
                           {isPast ? "✓" : i + 1}
-                        </span>
-                        {step === "signing" ? "Permit Signature" : step === "funding" ? "Lock in Escrow" : "Verified"}
+                        </div>
+                        {step === "signing" ? "Sign" : step === "funding" ? "Vault" : "Done"}
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              <Button
-                onClick={handleCreateAgreement}
-                disabled={isFunding || !permitOwnerAddress}
-                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-lg shadow-indigo-500/20 h-11 text-sm font-semibold"
-              >
-                {isFunding ? <Loader2 className="mr-2 w-4 h-4 animate-spin" /> : <Zap className="mr-2 w-4 h-4" />}
-                {isFunding ? "Processing…" : "Create & Fund Agreement"}
-              </Button>
+              <motion.div whileTap={BUTTON_PRESS}>
+                <Button 
+                  className="w-full h-12 rounded-xl bg-[#1A2406] text-[#D9F24F] font-bold text-sm" 
+                  disabled={isFunding || !permitOwnerAddress} 
+                  onClick={handleCreateAgreement}
+                >
+                  {isFunding ? <Loader2 className="w-4 h-4 animate-spin" /> : "Authorize & Lock Funds"}
+                </Button>
+              </motion.div>
             </div>
           </DialogContent>
         </Dialog>
-      </div>
+      </motion.div>
 
-      {/* ── Funded Projects On-chain ─── */}
-      <Card className="border border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-              <CheckCircle2 className="w-4 h-4 text-white" />
-            </div>
-            On-chain Funded Projects
-          </CardTitle>
-          <CardDescription className="text-sm">
-            Live data from PayCrowEscrow on Sepolia. Release milestones to pay freelancers.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoadingProjects ? (
-            <div className="flex items-center gap-2 text-sm text-slate-500 py-8 justify-center">
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-              <span>Loading projects from chain…</span>
-            </div>
-          ) : fundedProjects.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
-                <ShieldCheck className="w-8 h-8 text-slate-300" />
+      {/* ── On-chain Projects Section ── */}
+      <motion.div variants={maskedReveal} className="space-y-6">
+        <div className="flex items-center justify-between px-1">
+          <h2 className="font-jakarta text-xl font-bold tracking-tight text-[#1A2406] flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5" />
+            Active Vault Projects
+          </h2>
+          <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/30 uppercase tracking-widest border-none">
+            On-Chain Verified
+          </Badge>
+        </div>
+        
+        {isLoadingProjects ? (
+          <div className="flex flex-col items-center justify-center py-16 space-y-4">
+            <Loader2 className="w-8 h-8 animate-spin text-[#1A2406]/10" />
+            <p className="text-[10px] font-bold tracking-[0.2em] text-[#1A2406]/20 uppercase">Scanning Blockchain Ledgers</p>
+          </div>
+        ) : fundedProjects.length === 0 ? (
+          <div className="bg-white/40 backdrop-blur-md border border-dashed border-[#1A2406]/5 rounded-[32px] p-16 text-center">
+            <ShieldCheck className="w-10 h-10 text-[#1A2406]/10 mx-auto mb-4" />
+            <p className="text-sm text-[#1A2406]/30 font-medium italic">No active vault projects found for this wallet.</p>
+          </div>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {fundedProjects.map((project) => (
+              <ProjectCard key={project.projectId.toString()} project={project} />
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* ── Off-chain Agreements Section ── */}
+      <motion.div variants={maskedReveal} className="space-y-8">
+        <div className="px-1">
+          <h2 className="font-jakarta text-xl font-bold tracking-tight text-[#1A2406] flex items-center gap-2 mb-1">
+            <FileText className="w-5 h-5 font-bold" />
+            Contractual Ledger
+          </h2>
+          <p className="text-[11px] font-medium text-[#1A2406]/30 uppercase tracking-widest">Off-chain metadata records</p>
+        </div>
+
+        {/* Sliding Tabs (Profile Style) */}
+        <div className="relative border-b border-black/[0.05]">
+          <div className="flex gap-8 overflow-x-auto scrollbar-none">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`relative pb-4 px-1 text-xs font-bold uppercase tracking-widest transition-all duration-300 whitespace-nowrap
+                  ${activeTab === tab.id ? "text-[#1A2406]" : "text-[#1A2406]/30 hover:text-[#1A2406]/60"}`}
+              >
+                <div className="flex items-center gap-2">
+                  {tab.label}
+                  <span className={`px-1.5 py-0.5 rounded-md text-[9px] ${activeTab === tab.id ? 'bg-[#1A2406] text-white' : 'bg-black/[0.05]'}`}>
+                    {tab.count}
+                  </span>
+                </div>
+                {activeTab === tab.id && (
+                  <motion.div
+                    layoutId="active-agreement-tab"
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#D9F24F] shadow-[0_0_10px_rgba(217,242,79,0.8)]"
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -10 }}
+            transition={{ duration: 0.3 }}
+          >
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 animate-spin text-[#1A2406]/10" />
               </div>
-              <p className="text-sm text-slate-500">No funded projects yet for this account.</p>
-              <p className="text-xs text-slate-400 mt-1">Create an agreement above to get started.</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {fundedProjects.map((project) => (
-                <ProjectCard key={project.projectId.toString()} project={project} />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── Off-chain Agreement Tabs ─── */}
-      <Tabs defaultValue="incoming" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 bg-slate-100 p-1 rounded-xl h-11">
-          <TabsTrigger value="incoming" className="rounded-lg text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm">
-            Incoming ({incomingAgreements.length})
-          </TabsTrigger>
-          <TabsTrigger value="outgoing" className="rounded-lg text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm">
-            Outgoing ({outgoingAgreements.length})
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="incoming" className="mt-6">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-            </div>
-          ) : incomingAgreements.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="text-center py-16">
-                <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
-                  <FileText className="w-8 h-8 text-slate-300" />
-                </div>
-                <p className="text-sm text-slate-500">No incoming agreements yet</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {incomingAgreements.map((agreement) => (
-                <AgreementCard key={agreement.id} agreement={agreement} type="incoming" />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="outgoing" className="mt-6">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-            </div>
-          ) : outgoingAgreements.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="text-center py-16">
-                <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
-                  <FileText className="w-8 h-8 text-slate-300" />
-                </div>
-                <p className="text-sm text-slate-500">No outgoing agreements yet</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {outgoingAgreements.map((agreement) => (
-                <AgreementCard key={agreement.id} agreement={agreement} type="outgoing" />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
-    </div>
+            ) : (activeTab === "incoming" ? incomingAgreements : outgoingAgreements).length === 0 ? (
+              <div className="bg-white/40 backdrop-blur-md border border-dashed border-[#1A2406]/5 rounded-[32px] p-20 text-center">
+                <p className="text-sm text-[#1A2406]/30 font-medium italic">No {activeTab} agreements recorded.</p>
+              </div>
+            ) : (
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {(activeTab === "incoming" ? incomingAgreements : outgoingAgreements).map((agreement) => (
+                  <AgreementCard key={agreement.id} agreement={agreement} type={activeTab} />
+                ))}
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </motion.div>
+    </motion.div>
   );
 }
