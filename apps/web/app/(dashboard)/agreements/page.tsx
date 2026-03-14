@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -53,32 +53,51 @@ export default function AgreementsPage() {
 
   // Fetch agreements
   const fetchAgreements = async () => {
+    if (!session?.user?.id) {
+      console.log('Session not ready, skipping fetch');
+      return;
+    }
+
     try {
       setIsLoading(true);
+      console.log(`Fetching agreements for user: ${session.user.id}`);
+
       const [incomingRes, outgoingRes] = await Promise.all([
-        fetch("http://localhost:5000/agreements/incoming"),
-        fetch("http://localhost:5000/agreements/outgoing"),
+        fetch(`http://localhost:5000/agreements/incoming?userId=${session.user.id}`),
+        fetch(`http://localhost:5000/agreements/outgoing?userId=${session.user.id}`),
       ]);
+
+      console.log(`Incoming response status: ${incomingRes.status}`);
+      console.log(`Outgoing response status: ${outgoingRes.status}`);
 
       if (incomingRes.ok) {
         const data = await incomingRes.json();
         setIncomingAgreements(data.agreements || []);
+      } else {
+        const error = await incomingRes.json();
+        console.error('Error fetching incoming:', error);
       }
+
       if (outgoingRes.ok) {
         const data = await outgoingRes.json();
         setOutgoingAgreements(data.agreements || []);
+      } else {
+        const error = await outgoingRes.json();
+        console.error('Error fetching outgoing:', error);
       }
     } catch (error) {
       console.error("Error fetching agreements:", error);
-      toast.error("Failed to fetch agreements");
+      toast.error("Failed to fetch agreements - make sure the API server is running on http://localhost:5000");
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAgreements();
-  }, []);
+    if (session?.user?.id) {
+      fetchAgreements();
+    }
+  }, [session?.user?.id]);
 
   const handleCreateAgreement = async () => {
     if (!session?.user?.id) {
@@ -165,7 +184,9 @@ export default function AgreementsPage() {
                 : `To: ${agreement.receiver.name} (${agreement.receiver.email})`}
             </CardDescription>
           </div>
-          <Badge className={getStatusColor(agreement.status)}>{agreement.status}</Badge>
+          <Badge variant="outline" className={getStatusColor(agreement.status)}>
+            {agreement.status}
+          </Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -229,9 +250,12 @@ export default function AgreementsPage() {
                 <Label htmlFor="title">Agreement Title *</Label>
                 <Input
                   id="title"
+                  type="text"
                   placeholder="e.g., Website Development Project"
                   value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setFormData({ ...formData, title: e.target.value })
+                  }
                 />
               </div>
 
@@ -239,9 +263,12 @@ export default function AgreementsPage() {
                 <Label htmlFor="description">Description</Label>
                 <Input
                   id="description"
+                  type="text"
                   placeholder="Detailed description of the agreement"
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
                 />
               </div>
 
@@ -253,15 +280,20 @@ export default function AgreementsPage() {
                     type="number"
                     placeholder="1000"
                     value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setFormData({ ...formData, amount: e.target.value })
+                    }
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="currency">Currency</Label>
                   <Input
                     id="currency"
+                    type="text"
                     value={formData.currency}
-                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setFormData({ ...formData, currency: e.target.value })
+                    }
                     readOnly
                   />
                 </div>
@@ -274,7 +306,9 @@ export default function AgreementsPage() {
                   type="email"
                   placeholder="receiver@example.com"
                   value={formData.receiverEmail}
-                  onChange={(e) => setFormData({ ...formData, receiverEmail: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setFormData({ ...formData, receiverEmail: e.target.value })
+                  }
                 />
               </div>
 
@@ -302,9 +336,10 @@ export default function AgreementsPage() {
                           </Label>
                           <Input
                             id={`milestone-title-${index}`}
+                            type="text"
                             placeholder="e.g., Design Phase"
                             value={milestone.title}
-                            onChange={(e) => {
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                               const newMilestones = [...milestonesData];
                               newMilestones[index].title = e.target.value;
                               setMilestonesData(newMilestones);
@@ -320,7 +355,7 @@ export default function AgreementsPage() {
                             type="number"
                             placeholder="100"
                             value={milestone.amount}
-                            onChange={(e) => {
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                               const newMilestones = [...milestonesData];
                               newMilestones[index].amount = e.target.value;
                               setMilestonesData(newMilestones);
@@ -334,9 +369,10 @@ export default function AgreementsPage() {
                         </Label>
                         <Input
                           id={`milestone-desc-${index}`}
+                          type="text"
                           placeholder="Description"
                           value={milestone.description}
-                          onChange={(e) => {
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                             const newMilestones = [...milestonesData];
                             newMilestones[index].description = e.target.value;
                             setMilestonesData(newMilestones);
@@ -351,7 +387,7 @@ export default function AgreementsPage() {
                           id={`milestone-date-${index}`}
                           type="date"
                           value={milestone.dueDate}
-                          onChange={(e) => {
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                             const newMilestones = [...milestonesData];
                             newMilestones[index].dueDate = e.target.value;
                             setMilestonesData(newMilestones);

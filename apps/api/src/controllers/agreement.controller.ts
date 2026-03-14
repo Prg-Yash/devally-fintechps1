@@ -19,14 +19,37 @@ export const createAgreement = async (req: Request, res: Response) => {
       });
     }
 
-    // Find the receiver by email
-    const receiver = await prisma.user.findUnique({
-      where: { email: receiverEmail },
+    // Normalize email: trim and convert to lowercase
+    const normalizedEmail = receiverEmail.trim().toLowerCase();
+    
+    console.log(`Looking for user with email: "${normalizedEmail}" (original: "${receiverEmail}")`);
+
+    // Find the receiver by email (case-insensitive)
+    const receiver = await prisma.user.findFirst({
+      where: { 
+        email: {
+          equals: normalizedEmail,
+          mode: 'insensitive'
+        }
+      },
     });
 
     if (!receiver) {
-      return res.status(404).json({ error: 'User not found with the provided email' });
+      console.log(`User not found with email: ${normalizedEmail}`);
+      // List all users for debugging
+      const allUsers = await prisma.user.findMany({
+        select: { id: true, email: true, name: true }
+      });
+      console.log('Available users:', allUsers);
+      
+      return res.status(404).json({ 
+        error: `User not found with email: ${normalizedEmail}`,
+        inputEmail: receiverEmail,
+        normalizedEmail: normalizedEmail
+      });
     }
+
+    console.log(`Found user: ${receiver.id} with email: ${receiver.email}`);
 
     // Create agreement with milestones (title and amount are optional)
     const agreement = await prisma.agreement.create({
@@ -65,10 +88,10 @@ export const createAgreement = async (req: Request, res: Response) => {
 
 export const getIncomingAgreements = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.query.userId as string;
 
     if (!userId) {
-      return res.status(400).json({ error: 'userId is required (from auth)' });
+      return res.status(400).json({ error: 'userId query parameter is required' });
     }
 
     const agreements = await prisma.agreement.findMany({
@@ -94,10 +117,10 @@ export const getIncomingAgreements = async (req: Request, res: Response) => {
 
 export const getOutgoingAgreements = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.query.userId as string;
 
     if (!userId) {
-      return res.status(400).json({ error: 'userId is required (from auth)' });
+      return res.status(400).json({ error: 'userId query parameter is required' });
     }
 
     const agreements = await prisma.agreement.findMany({
