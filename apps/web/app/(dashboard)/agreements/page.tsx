@@ -89,6 +89,7 @@ interface Agreement {
   creator: { id: string; name: string; email: string };
   receiver: { id: string; name: string; email: string };
   milestones: Milestone[];
+  projectId?: number;
 }
 
 interface Milestone {
@@ -245,17 +246,27 @@ export default function AgreementsPage() {
   const getStatusStyle = (status: string) => {
     switch (status.toUpperCase()) {
       case "PENDING":
+      case "AWAITING ACTION":
         return "bg-amber-50 text-amber-700 border-amber-200";
       case "ACTIVE":
-        return "bg-[#D9F24F]/20 text-[#1A2406] border-[#D9F24F]/30";
-      case "COMPLETED":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200";
-      case "CANCELLED":
-        return "bg-red-50 text-red-700 border-red-200";
       case "FUNDED":
-        return "bg-[#D9F24F]/20 text-[#1A2406] border-[#D9F24F]/30";
+      case "ACTIVE CONTRACT":
+        return "bg-emerald-50 text-emerald-700 border-emerald-200";
+      case "COMPLETED":
+      case "SETTLED":
+      case "SUCCESSFULLY SETTLED":
+        return "bg-blue-50 text-blue-700 border-blue-200";
       default:
-        return "bg-slate-50 text-slate-600 border-slate-200";
+        return "bg-slate-50 text-slate-700 border-slate-200";
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status.toUpperCase()) {
+      case "PENDING": return "Awaiting Action";
+      case "FUNDED": return "Active Contract";
+      case "COMPLETED": return "Successfully Settled";
+      default: return status;
     }
   };
 
@@ -287,10 +298,12 @@ export default function AgreementsPage() {
                 </Badge>
                 <span className="text-[10px] font-mono text-[#1A2406]/20 font-bold uppercase tracking-widest">#{agreement.id.slice(-6)}</span>
               </div>
-              <CardTitle className="text-lg font-jakarta font-bold text-[#1A2406] tracking-tight mt-2 flex items-center gap-2">
-                {agreement.title}
-                <ChevronRight className="w-4 h-4 text-[#1A2406]/10 group-hover:translate-x-1 transition-transform" />
-              </CardTitle>
+              <Link href={`/agreements/${agreement.id}`}>
+                <CardTitle className="text-lg font-jakarta font-bold text-[#1A2406] tracking-tight mt-2 flex items-center gap-2 hover:text-[#D9F24F] transition-colors cursor-pointer">
+                  {agreement.title}
+                  <ChevronRight className="w-4 h-4 text-[#1A2406]/10 group-hover:translate-x-1 transition-transform" />
+                </CardTitle>
+              </Link>
             </div>
             <div className="p-2.5 bg-white/80 rounded-xl border border-white shadow-sm shrink-0">
               <FileText className="w-5 h-5 text-[#1A2406]" />
@@ -298,8 +311,8 @@ export default function AgreementsPage() {
           </div>
           <CardDescription className="text-[11px] font-medium text-[#1A2406]/40 mt-1">
             {type === "incoming"
-              ? <>From: <span className="text-[#1A2406]">{agreement.creator.name}</span></>
-              : <>To: <span className="text-[#1A2406]">{agreement.receiver.name}</span></>}
+              ? <>From Hiring Party: <span className="text-[#1A2406]">{agreement.creator.name}</span></>
+              : <>To Service Provider: <span className="text-[#1A2406]">{agreement.receiver.name}</span></>}
           </CardDescription>
         </CardHeader>
 
@@ -312,7 +325,7 @@ export default function AgreementsPage() {
           
           <div className="grid grid-cols-2 gap-4 pb-2">
             <div className="rounded-xl bg-slate-50/50 p-3 border border-black/[0.02]">
-              <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none mb-1.5">Escrowed</p>
+              <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none mb-1.5">Full Budget</p>
               <p className="text-lg font-bold text-[#1A2406]">
                 {agreement.amount} <span className="text-[10px] text-[#1A2406]/40 uppercase">{agreement.currency}</span>
               </p>
@@ -328,9 +341,15 @@ export default function AgreementsPage() {
               <Clock className="w-3 h-3" />
               {new Date(agreement.createdAt).toLocaleDateString()}
             </span>
-            <button className="text-[10px] font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#1A2406] transition-colors flex items-center gap-1">
-              View Details <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
+            <Button
+              asChild
+              variant="ghost"
+              className="text-[10px] h-auto p-0 font-bold tracking-[0.1em] uppercase text-[#1A2406]/40 hover:text-[#1A2406] hover:bg-transparent transition-colors group/btn"
+            >
+              <Link href={`/agreements/${agreement.id}`}>
+                View Details <ArrowUpRight className="w-3.5 h-3.5 group-hover/btn:-translate-y-0.5 group-hover/btn:translate-x-0.5 transition-transform" />
+              </Link>
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -338,111 +357,115 @@ export default function AgreementsPage() {
   );
 
   const ProjectCard = ({ project }: { project: OnchainProject }) => {
-    const isExpanded = releasingProjectId === project.projectId;
+    const metadata = useMemo(() => {
+      const pId = Number(project.projectId);
+      const all = [...incomingAgreements, ...outgoingAgreements];
+      // Try fuzzy matching on string or number
+      return all.find((a: any) => Number(a.projectId) === pId);
+    }, [project.projectId, incomingAgreements, outgoingAgreements]);
+
+    const detailUrl = metadata 
+      ? `/agreements/${metadata.id}` 
+      : `/agreements/pid-${project.projectId.toString()}`;
+
+    const bTotal = BigInt(project.amount);
+    const bPaid = BigInt(project.releasedAmount);
+    
+    const totalStr = formatPusdAmount(bTotal);
+    const paidStr = formatPusdAmount(bPaid);
+    const remaining = bTotal - bPaid;
+    const remainingStr = formatPusdAmount(remaining);
+
     const status = project.isCompleted ? "COMPLETED" : project.isFunded ? "FUNDED" : "PENDING";
+    const displayStatus = getStatusLabel(status);
     
     return (
       <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
-        <Card className="group relative bg-[#1A2406] text-white rounded-[28px] overflow-hidden shadow-[0_20px_40px_rgba(26,36,6,0.1)] border border-white/5 transition-all duration-500">
-          <div className="absolute inset-0 bg-gradient-to-tr from-[#D9F24F]/5 via-transparent to-transparent pointer-events-none opacity-50" />
-          
-          <CardHeader className="pb-3 relative z-10">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-[#D9F24F] rounded-xl shadow-[0_0_20px_rgba(217,242,79,0.2)]">
-                  <ShieldCheck className="w-4 h-4 text-[#1A2406]" />
+        <Card className="group relative bg-white border border-[#1A2406]/5 rounded-[32px] overflow-hidden shadow-sm hover:shadow-xl hover:shadow-[#1A2406]/5 transition-all duration-500">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-[#D9F24F]/10 overflow-hidden">
+            <motion.div 
+              initial={{ x: "-100%" }}
+              animate={{ x: "0%" }}
+              transition={{ duration: 1.5, ease: "circOut" }}
+              className="h-full bg-[#D9F24F]"
+              style={{ width: bTotal > BigInt(0) ? `${Number((bPaid * BigInt(100)) / bTotal)}%` : "0%" }}
+            />
+          </div>
+
+          <CardHeader className="pb-4 pt-8 px-6 space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="space-y-1">
+                <Link href={detailUrl}>
+                  <h3 className="text-lg font-jakarta font-bold text-[#1A2406] leading-tight hover:text-[#D9F24F] transition-colors cursor-pointer flex items-center gap-2">
+                    {metadata?.title || `Protocol #${project.projectId.toString()}`}
+                    <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </h3>
+                </Link>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono font-bold text-[#1A2406]/20 uppercase tracking-widest">
+                    Sent to Service Provider: {metadata?.receiver?.name || shortAddress(project.freelancer)}
+                  </span>
                 </div>
-                <p className="font-jakarta font-bold text-white tracking-tight">Project #{project.projectId.toString()}</p>
               </div>
-              <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase border-none ${getStatusStyle(status)}`}>
-                {status}
+              <Badge variant="outline" className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wider border-none ${getStatusStyle(status)}`}>
+                {displayStatus}
               </Badge>
             </div>
+            
+            {metadata?.description && (
+              <p className="text-xs text-[#1A2406]/50 line-clamp-2 leading-relaxed">
+                {metadata.description}
+              </p>
+            )}
           </CardHeader>
 
-          <CardContent className="space-y-4 relative z-10">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-[20px] bg-white/5 border border-white/5 p-4">
-                <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest leading-none mb-2">Total Locked</p>
-                <p className="text-xl font-bold text-white">
-                  {formatPusdAmount(project.amount)} <span className="text-[10px] text-white/40 uppercase">PUSD</span>
-                </p>
+          <CardContent className="px-6 pb-6 space-y-6">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <p className="text-[8px] font-bold text-[#1A2406]/20 uppercase tracking-widest">Full Budget</p>
+                <p className="text-xs font-bold text-[#1A2406]">{totalStr}</p>
               </div>
-              <div className="rounded-[20px] bg-white/5 border border-white/5 p-4">
-                <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest leading-none mb-2">Freelancer</p>
-                <p className="text-xs font-mono font-bold text-[#D9F24F] mt-1 truncate">
-                  {shortAddress(project.freelancer)}
-                </p>
+              <div className="space-y-1">
+                <p className="text-[8px] font-bold text-[#1A2406]/20 uppercase tracking-widest">Payment Sent</p>
+                <p className="text-xs font-bold text-emerald-600">-{paidStr}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[8px] font-bold text-[#1A2406]/20 uppercase tracking-widest">Available</p>
+                <p className="text-xs font-bold text-[#1A2406]">{remainingStr}</p>
               </div>
             </div>
 
-            {/* Release Milestone Section */}
-            {project.isFunded && !project.isCompleted && (
-              <div className="pt-2">
-                {isExpanded ? (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-4"
+            <div className="space-y-3">
+              {project.isFunded && !project.isCompleted && remaining > 0n && (
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => {
+                      setReleasingProjectId(project.projectId);
+                      setReleaseAmount(remainingStr);
+                    }}
+                    className="flex-1 h-11 bg-[#1A2406] text-white hover:bg-[#2c3d0a] font-bold rounded-2xl text-[10px] uppercase tracking-widest shadow-lg shadow-[#1A2406]/10 transition-all active:scale-95"
                   >
-                    <div className="flex items-center gap-2">
-                      <Send className="w-4 h-4 text-[#D9F24F]" />
-                      <p className="text-sm font-bold text-white">Release Payout</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold uppercase tracking-widest text-white/40">Amount to Release (PUSD)</Label>
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        step="0.01"
-                        value={releaseAmount}
-                        onChange={(e) => setReleaseAmount(e.target.value)}
-                        className="bg-white/5 border-white/10 rounded-xl text-white h-11 focus:ring-[#D9F24F]/20"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => handleReleaseMilestone(project.projectId)}
-                        disabled={isReleasing}
-                        className="flex-1 bg-[#D9F24F] text-[#1A2406] hover:bg-[#c4db47] font-bold rounded-xl"
-                      >
-                        {isReleasing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Release"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setReleasingProjectId(null);
-                          setReleaseAmount("");
-                        }}
-                        className="border-white/10 text-white hover:bg-white/5 rounded-xl"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </motion.div>
-                ) : (
-                  <motion.div whileTap={BUTTON_PRESS}>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setReleasingProjectId(project.projectId);
-                        setReleaseAmount("");
-                      }}
-                      className="w-full border-white/10 text-white hover:bg-[#D9F24F] hover:text-[#1A2406] rounded-xl h-11 text-xs font-bold uppercase tracking-widest transition-all"
-                    >
-                      <Zap className="mr-2 w-3.5 h-3.5" />
-                      Release Milestone
-                    </Button>
-                  </motion.div>
-                )}
-              </div>
-            )}
-            
-            <p className="text-[9px] text-white/20 font-mono text-center pt-2">
-              Vault Protection: {shortAddress(ESCROW_CONTRACT_ADDRESS)}
-            </p>
+                    Settle Full Balance
+                  </Button>
+                  <Button
+                    asChild
+                    variant="outline"
+                    className="w-11 h-11 p-0 border-[#1A2406]/10 hover:bg-[#D9F24F]/10 rounded-2xl flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+                  >
+                    <Link href={detailUrl}>
+                      <ArrowUpRight className="w-4 h-4 text-[#1A2406]" />
+                    </Link>
+                  </Button>
+                </div>
+              )}
+
+              {project.isCompleted && (
+                <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-100 italic text-[10px] font-bold uppercase tracking-widest">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Vault fully settled
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </motion.div>
@@ -525,9 +548,9 @@ export default function AgreementsPage() {
         <div className="px-1">
           <h2 className="font-jakarta text-xl font-bold tracking-tight text-[#1A2406] flex items-center gap-2 mb-1">
             <FileText className="w-5 h-5 font-bold" />
-            Contractual Ledger
+            Agreement Records
           </h2>
-          <p className="text-[11px] font-medium text-[#1A2406]/30 uppercase tracking-widest">Off-chain metadata records</p>
+          <p className="text-[11px] font-medium text-[#1A2406]/30 uppercase tracking-widest">Contractual metadata and drafts</p>
         </div>
 
         {/* Sliding Tabs (Profile Style) */}

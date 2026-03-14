@@ -15,6 +15,7 @@ model User {
   email         String   @unique
   emailVerified Boolean  @default(false)
   image         String?
+  phoneNumber   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -137,6 +138,11 @@ model Agreement {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Protocol Sync Fields
+  projectId       Int?     @unique // On-chain project index
+  receiverAddress String?          // Target wallet address
+  transactionHash String?          // On-chain creation proof 
+
   creatorId String
   creator   User   @relation("Creator", fields: [creatorId], references: [id], onDelete: Cascade)
 
@@ -148,6 +154,7 @@ model Agreement {
 
   @@index([creatorId])
   @@index([receiverId])
+  @@index([projectId])
   @@map("agreement")
 }
 
@@ -184,6 +191,7 @@ model Milestone {
   amount        Float
   status        String   @default("PENDING")
   dueDate       DateTime?
+  order         Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

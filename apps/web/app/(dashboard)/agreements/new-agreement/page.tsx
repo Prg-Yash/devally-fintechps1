@@ -39,6 +39,7 @@ import {
   getEscrowContract,
   getPusdContract,
   getPermitNonce,
+  getProjectCount,
   scalePusdAmount,
   splitSignature,
   shortAddress,
@@ -125,7 +126,7 @@ export default function NewAgreementPage() {
     setMilestones(newMilestones);
   };
 
-  const saveAgreementMetadata = async (projectId: bigint) => {
+  const saveAgreementMetadata = async (projectId: bigint, txHash?: string) => {
     if (!session?.user?.id || !formData.receiverEmail) return;
     try {
       await fetch(`${API_BASE_URL}/agreements`, {
@@ -141,6 +142,7 @@ export default function NewAgreementPage() {
           dueDate: formData.dueDate ? new Date(formData.dueDate) : null,
           projectId: Number(projectId),
           freelancerAddress: formData.freelancerAddress,
+          transactionHash: txHash,
           milestones: milestones.map(m => ({
             title: m.title,
             amount: parseFloat(m.amount) || 0,
@@ -251,15 +253,21 @@ export default function NewAgreementPage() {
         params: [recipientAddr, scaledAmount, permitDeadline, permitV, r, s],
       });
 
-      await sendAndConfirmTransaction({
+      const result = await sendAndConfirmTransaction({
         account: fundingAccount,
         transaction: tx,
       });
 
-      // Fetch projects to get count or just use common logic
-      const projects = await fetch(`${API_BASE_URL}/agreements/outgoing?userId=${session?.user?.id}`).then(res => res.json()).then(data => data.agreements || []);
+      // Capture the newly created project's on-chain ID
+      let createdProjectId = BigInt(0);
+      try {
+        const count = await getProjectCount(thirdwebClient);
+        createdProjectId = count > BigInt(0) ? count - BigInt(1) : BigInt(0);
+      } catch (e) {
+        console.error("Failed to fetch new project count", e);
+      }
       
-      await saveAgreementMetadata(BigInt(0));
+      await saveAgreementMetadata(createdProjectId, result.transactionHash);
       
       setTxStep("verified");
       setTxStepDescription("Agreement created & funds locked in escrow ✓");
@@ -298,12 +306,12 @@ export default function NewAgreementPage() {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Agreements
           </Button>
-          <h1 className="font-jakarta text-4xl tracking-[-0.05em] text-[#1A2406] font-bold">
-            Settlement <span className="font-light text-[#1A2406]/30 italic">Architect</span>
-          </h1>
-          <p className="font-sans text-[#1A2406]/30 text-[10px] font-bold tracking-widest uppercase">
-            Protocol Configuration • Industrial Escrow Security
-          </p>
+            <h1 className="font-jakarta text-5xl tracking-[-0.05em] text-[#1A2406] font-bold">
+              Draft <span className="font-light text-[#1A2406]/30 italic">Agreement</span>
+            </h1>
+            <p className="font-sans text-[#1A2406]/30 text-[10px] font-bold tracking-widest uppercase">
+              Secure Escrow • Global Service Standards
+            </p>
         </div>
         <div className="p-4 bg-[#1A2406] rounded-[20px] shadow-lg shadow-[#1A2406]/20">
           <Gavel className="w-8 h-8 text-[#D9F24F]" />
@@ -351,12 +359,12 @@ export default function NewAgreementPage() {
               <div className="w-10 h-10 rounded-full bg-[#1A2406]/5 flex items-center justify-center border border-[#1A2406]/5">
                 <DollarSign className="w-5 h-5 text-[#1A2406]/40" />
               </div>
-              <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">Counterparty & Treasury</h2>
+              <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">Hiring Details</h2>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
               <div className="space-y-3">
-                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Freelancer Wallet Address *</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Service Provider Wallet *</Label>
                 <div className="relative">
                   <Wallet className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
                   <Input 
@@ -369,7 +377,7 @@ export default function NewAgreementPage() {
               </div>
 
               <div className="space-y-3">
-                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Freelancer Email *</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Service Provider Email *</Label>
                 <Input 
                   type="email" 
                   placeholder="user@example.com" 
@@ -380,7 +388,7 @@ export default function NewAgreementPage() {
               </div>
 
               <div className="space-y-3">
-                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">PUSD Total Amount *</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Total Project Budget *</Label>
                 <div className="relative">
                   <span className="absolute right-0 top-1/2 -translate-y-1/2 font-jakarta font-bold text-[#1A2406]/20 text-xs">PUSD</span>
                   <Input 
@@ -394,7 +402,7 @@ export default function NewAgreementPage() {
               </div>
 
               <div className="space-y-3">
-                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Target Completion Date *</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Final Delivery Date *</Label>
                 <div className="relative">
                   <Calendar className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
                   <Input 
@@ -415,7 +423,7 @@ export default function NewAgreementPage() {
                 <div className="w-10 h-10 rounded-full bg-[#1A2406]/5 flex items-center justify-center border border-[#1A2406]/5">
                   <Zap className="w-5 h-5 text-[#1A2406]/40" />
                 </div>
-                <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">Milestone Registry</h2>
+                <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">Payment Roadmap</h2>
               </div>
               <Button 
                 type="button" 
@@ -424,7 +432,7 @@ export default function NewAgreementPage() {
                 className="rounded-2xl border-[#1A2406]/10 hover:bg-[#1A2406] hover:text-[#D9F24F] transition-all font-bold text-[10px] uppercase tracking-widest px-6"
               >
                 <Plus className="w-3.5 h-3.5 mr-2" />
-                Add Milestone
+                Add Payment Step
               </Button>
             </div>
 
