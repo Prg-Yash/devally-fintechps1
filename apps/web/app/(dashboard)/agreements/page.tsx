@@ -86,6 +86,8 @@ const txStepMeta: Record<TxStep, { label: string; color: string }> = {
   error: { label: "Failed", color: "bg-red-100 text-red-700" },
 };
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+
 /* ─── Main Page Component ──────────────────────────────────────────────── */
 
 export default function AgreementsPage() {
@@ -186,7 +188,7 @@ export default function AgreementsPage() {
   const saveAgreementMetadata = async (projectId: bigint) => {
     if (!session?.user?.id || !formData.receiverEmail) return;
     try {
-      await fetch("http://localhost:5000/agreements", {
+      await fetch(`${API_BASE_URL}/agreements`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
