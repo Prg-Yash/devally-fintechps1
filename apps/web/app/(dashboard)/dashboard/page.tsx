@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+impimport { motion } from "framer-motion";
 import {
   Wallet,
   CheckCircle2,
   Coins,
-  FileText, Loader2, LogOut,
+  FileText, Loader2, 
   ArrowRight,
   TrendingUp,
   Shield,
@@ -347,5 +347,3 @@ export default function DashboardPage() {
         </div>
       </motion.div>
     </motion.div>
-  );
-}
