@@ -14,13 +14,13 @@ const router = Router();
 router.post('/', express.json(), createAgreement);
 
 // Get incoming agreements (where user is receiver)
-router.get('/incoming', express.json(), getIncomingAgreements);
+router.get('/incoming', getIncomingAgreements);
 
 // Get outgoing agreements (where user is creator)
-router.get('/outgoing', express.json(), getOutgoingAgreements);
+router.get('/outgoing', getOutgoingAgreements);
 
 // Get a specific agreement by ID
-router.get('/:agreementId', express.json(), getAgreementById);
+router.get('/:agreementId', getAgreementById);
 
 // Update agreement status
 router.put('/:agreementId/status', express.json(), updateAgreementStatus);

@@ -20,9 +20,13 @@ import {
   Activity,
 } from "lucide-react";
 import Link from "next/link";
-import { authClient } from "@/lib/auth-client";
-import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
+import { authClient } from "@/lib/auth-client";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 interface Purchase {
@@ -102,10 +106,24 @@ const generateWalletsForUser = (userId: string): DemoWallet[] => {
   const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const multiplier = 1 + (hash % 5);
   return [
-    { id: "w1", name: "Main Trading Node", address: "0x7a59 ... 3f92", balance: 14500.50 * multiplier, currency: "USDC", type: "MetaMask" },
-    { id: "w2", name: "Savings Vault", address: "0x3b12 ... 9a41", balance: 50000.00 * multiplier, currency: "USDC", type: "Coinbase" },
-    { id: "w3", name: "Growth Escrow", address: "0x9c88 ... 1d05", balance: 320.75 * multiplier, currency: "USDT", type: "Phantom" }
+    { id: "w1", name: "Main Trading Node", address: "0x7a59 ... 3f92", balance: 14500.5 * multiplier, currency: "USDC", type: "MetaMask" },
+    { id: "w2", name: "Savings Vault", address: "0x3b12 ... 9a41", balance: 50000 * multiplier, currency: "USDC", type: "Coinbase" },
+    { id: "w3", name: "Growth Escrow", address: "0x9c88 ... 1d05", balance: 320.75 * multiplier, currency: "USDT", type: "Phantom" },
   ];
+};
+
+const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
+  switch (status.toUpperCase()) {
+    case "SUCCESS":
+    case "COMPLETED":
+      return "default";
+    case "PENDING":
+      return "secondary";
+    case "FAILED":
+      return "destructive";
+    default:
+      return "outline";
+  }
 };
 
 // ─── Dashboard Component ───────────────────────────────────────────────────
@@ -113,6 +131,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
   
+
   const [connectedWalletId, setConnectedWalletId] = useState<string>("w1");
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
@@ -121,29 +140,51 @@ export default function DashboardPage() {
   const name = session?.user?.name?.split(' ')[0] ?? "User";
   const email = session?.user?.email ?? "";
 
-  useEffect(() => {
-    if (session?.user?.id) {
-      setWallets(generateWalletsForUser(session.user.id));
-      fetchPurchases(session.user.id);
-    }
-  }, [session?.user?.id]);
+  const fullName = session?.user?.name ?? "User";
+  const userEmail = session?.user?.email ?? "";
 
-  const fetchPurchases = async (userId: string) => {
-    try {
-      setIsLoadingPurchases(true);
-      const response = await fetch(`http://localhost:5000/razorpay/purchases?userId=${userId}`);
-      if (response.ok) {
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      return;
+    }
+
+    setWallets(generateWalletsForUser(userId));
+
+    const fetchPurchases = async () => {
+      try {
+        setIsLoadingPurchases(true);
+        const response = await fetch(
+          `http://localhost:5000/razorpay/purchases?userId=${encodeURIComponent(userId)}`,
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
         const data = await response.json();
-        setPurchases(data.purchases || []);
+        setPurchases(Array.isArray(data.purchases) ? data.purchases : []);
+      } catch (error) {
+        console.error("Error fetching purchases:", error);
+      } finally {
+        setIsLoadingPurchases(false);
       }
-    } catch (error) { console.error('Error:', error); } finally { setIsLoadingPurchases(false); }
-  };
+    };
 
   const totals = {
     purchased: purchases.filter((p) => p.status === "SUCCESS").reduce((sum, p) => sum + p.amount, 0),
     success: purchases.filter(p => p.status === "SUCCESS").length,
     pending: purchases.filter(p => p.status === "PENDING").length
   };
+
+  const successfulPurchases = purchases.filter((p) => {
+    const normalized = p.status.toUpperCase();
+    return normalized === "SUCCESS" || normalized === "COMPLETED";
+  });
+
+  const pendingPurchases = purchases.filter((p) => p.status.toUpperCase() === "PENDING");
+
+  const totalPurchased = successfulPurchases.reduce((sum, p) => sum + p.amount, 0);
 
   if (isPending) {
     return (
@@ -158,7 +199,7 @@ export default function DashboardPage() {
       variants={stagger}
       initial="hidden"
       animate="visible"
-      className="max-w-6xl mx-auto space-y-6 pt-2 pb-12"
+      className="mx-auto max-w-6xl space-y-6 pt-2 pb-10"
     >
       {/* ── Greeting Section (Compact & Technical) ── */}
       <motion.div variants={maskedReveal} className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-2">
@@ -240,37 +281,44 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        <motion.div 
-          variants={maskedReveal}
-          className="relative bg-white/40 backdrop-blur-xl rounded-[28px] p-6 space-y-4 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-white/60"
-        >
-          <div className="flex items-center justify-between relative z-10">
-            <span className="font-jakarta text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest leading-none">Awaiting Proof</span>
-            <div className="p-2 bg-white/80 rounded-xl border border-white shadow-sm">
-              <Clock className="w-4 h-4 text-[#1A2406]/40" />
-            </div>
-          </div>
-          <div className="space-y-0 relative z-10">
-            <p className="font-jakarta text-3xl font-bold tracking-[-0.04em] text-[#1A2406]">
-              {totals.pending}
-            </p>
-            <p className="text-[10px] font-sans text-gray-400 font-bold uppercase tracking-tight">Transaction audit pending</p>
-          </div>
-        </motion.div>
-      </div>
+      <motion.div variants={itemVariants}>
+        <Card className="border-[#D9EBFF] bg-[#F0F7FF]/70">
+          <CardHeader>
+            <CardTitle className="text-[#1E40AF]">Purchase Summary</CardTitle>
+            <CardDescription>Recent buy-crypto metrics from your account.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingPurchases ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading purchases...
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs font-medium text-gray-500">Total Stablecoins Purchased</p>
+                  <p className="mt-1 text-2xl font-bold text-[#16A34A]">
+                    Rs {totalPurchased.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500">Successful Transactions</p>
+                  <p className="mt-1 text-2xl font-bold text-[#2563EB]">{successfulPurchases.length}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500">Pending Transactions</p>
+                  <p className="mt-1 text-2xl font-bold text-[#CA8A04]">{pendingPurchases.length}</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
 
-      {/* ── Stake Wallets (Tight Vertical Flow - Gap-y-6) ── */}
-      <div className="space-y-5">
-        <motion.div variants={maskedReveal} className="flex items-center justify-between">
-          <h2 className="font-jakarta text-xl font-bold tracking-[-0.04em] text-[#1A2406]">
-            Integrated Staking Nodes
-          </h2>
-          <button className="text-[10px] font-bold tracking-[0.2em] uppercase text-[#1A2406]/30 hover:text-[#1A2406] transition-all flex items-center gap-1.5 active:scale-95">
-            Node Registry <ArrowUpRight className="w-3.5 h-3.5" />
-          </button>
-        </motion.div>
+      <motion.div variants={itemVariants} className="space-y-5">
+        <h2 className="font-jakarta text-2xl font-bold tracking-tight text-[#1A2406]">Your Connected Wallets</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {wallets.map((wallet) => {
             const isConnected = connectedWalletId === wallet.id;
             return (
