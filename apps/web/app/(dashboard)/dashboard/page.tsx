@@ -61,6 +61,11 @@ const stagger = {
   visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
 
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: SPRING }
+};
+
 // ─── Compact Rolling Counter ───
 const RollingCounter = ({ value, prefix = "", suffix = "", decimals = 0 }: { value: number, prefix?: string, suffix?: string, decimals?: number }) => {
   const [displayValue, setDisplayValue] = useState(value);
@@ -112,26 +117,11 @@ const generateWalletsForUser = (userId: string): DemoWallet[] => {
   ];
 };
 
-const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
-  switch (status.toUpperCase()) {
-    case "SUCCESS":
-    case "COMPLETED":
-      return "default";
-    case "PENDING":
-      return "secondary";
-    case "FAILED":
-      return "destructive";
-    default:
-      return "outline";
-  }
-};
-
 // ─── Dashboard Component ───────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
   
-
   const [connectedWalletId, setConnectedWalletId] = useState<string>("w1");
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
@@ -140,27 +130,20 @@ export default function DashboardPage() {
   const name = session?.user?.name?.split(' ')[0] ?? "User";
   const email = session?.user?.email ?? "";
 
-  const fullName = session?.user?.name ?? "User";
-  const userEmail = session?.user?.email ?? "";
-
   useEffect(() => {
     const userId = session?.user?.id;
-    if (!userId) {
-      return;
-    }
+    if (!userId) return;
 
     setWallets(generateWalletsForUser(userId));
 
-    const fetchPurchases = async () => {
+    const fetchPurchasesData = async () => {
       try {
         setIsLoadingPurchases(true);
         const response = await fetch(
           `http://localhost:5000/razorpay/purchases?userId=${encodeURIComponent(userId)}`,
         );
 
-        if (!response.ok) {
-          return;
-        }
+        if (!response.ok) return;
 
         const data = await response.json();
         setPurchases(Array.isArray(data.purchases) ? data.purchases : []);
@@ -171,11 +154,8 @@ export default function DashboardPage() {
       }
     };
 
-  const totals = {
-    purchased: purchases.filter((p) => p.status === "SUCCESS").reduce((sum, p) => sum + p.amount, 0),
-    success: purchases.filter(p => p.status === "SUCCESS").length,
-    pending: purchases.filter(p => p.status === "PENDING").length
-  };
+    fetchPurchasesData();
+  }, [session?.user?.id]);
 
   const successfulPurchases = purchases.filter((p) => {
     const normalized = p.status.toUpperCase();
@@ -185,6 +165,12 @@ export default function DashboardPage() {
   const pendingPurchases = purchases.filter((p) => p.status.toUpperCase() === "PENDING");
 
   const totalPurchased = successfulPurchases.reduce((sum, p) => sum + p.amount, 0);
+
+  const totals = {
+    purchased: totalPurchased,
+    success: successfulPurchases.length,
+    pending: pendingPurchases.length
+  };
 
   if (isPending) {
     return (
@@ -281,42 +267,35 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-      <motion.div variants={itemVariants}>
-        <Card className="border-[#D9EBFF] bg-[#F0F7FF]/70">
-          <CardHeader>
-            <CardTitle className="text-[#1E40AF]">Purchase Summary</CardTitle>
-            <CardDescription>Recent buy-crypto metrics from your account.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoadingPurchases ? (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading purchases...
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-                <div>
-                  <p className="text-xs font-medium text-gray-500">Total Stablecoins Purchased</p>
-                  <p className="mt-1 text-2xl font-bold text-[#16A34A]">
-                    Rs {totalPurchased.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500">Successful Transactions</p>
-                  <p className="mt-1 text-2xl font-bold text-[#2563EB]">{successfulPurchases.length}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500">Pending Transactions</p>
-                  <p className="mt-1 text-2xl font-bold text-[#CA8A04]">{pendingPurchases.length}</p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
+        <motion.div 
+          variants={maskedReveal}
+          className="relative bg-white/40 backdrop-blur-xl rounded-[28px] p-6 space-y-4 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-white/60 group overflow-hidden"
+        >
+          <div className="flex items-center justify-between relative z-10">
+            <span className="font-jakarta text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest leading-none">Awaiting Proof</span>
+            <div className="p-2 bg-white/80 rounded-xl border border-white shadow-sm">
+              <Clock className="w-4 h-4 text-[#1A2406]/40" />
+            </div>
+          </div>
+          <div className="space-y-0 relative z-10">
+            <p className="font-jakarta text-3xl font-bold tracking-[-0.04em] text-[#1A2406]">
+              {totals.pending}
+            </p>
+            <p className="text-[10px] font-sans text-gray-400 font-bold uppercase tracking-tight">Transaction audit pending</p>
+          </div>
+        </motion.div>
+      </div>
 
-      <motion.div variants={itemVariants} className="space-y-5">
-        <h2 className="font-jakarta text-2xl font-bold tracking-tight text-[#1A2406]">Your Connected Wallets</h2>
+
+      <motion.div variants={stagger} className="space-y-5">
+        <div className="flex items-center justify-between">
+          <h2 className="font-jakarta text-xl font-bold tracking-[-0.04em] text-[#1A2406]">
+            Integrated Staking Nodes
+          </h2>
+          <button className="text-[10px] font-bold tracking-[0.2em] uppercase text-[#1A2406]/30 hover:text-[#1A2406] transition-all flex items-center gap-1.5 active:scale-95">
+            Node Registry <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {wallets.map((wallet) => {
@@ -389,9 +368,9 @@ export default function DashboardPage() {
             );
           })}
         </div>
-      </div>
+      </motion.div>
 
-      {/* ── Settlement Ledger (Tight Vertical Flow) ── */}
+      {/* ── Historical Settlement Ledger (Tight Vertical Flow) ── */}
       <div className="space-y-5">
         <motion.div variants={maskedReveal}>
           <h2 className="font-jakarta text-xl font-bold tracking-[-0.04em] text-[#1A2406]">
@@ -414,9 +393,9 @@ export default function DashboardPage() {
               >
                 <div className="flex items-center gap-6 mb-4 md:mb-0">
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-                    item.status === "SUCCESS" ? "bg-[#16A34A]/5 text-[#16A34A]" : "bg-[#CA8A04]/5 text-[#CA8A04]"
+                    item.status.toUpperCase() === "SUCCESS" || item.status.toUpperCase() === "COMPLETED" ? "bg-[#16A34A]/5 text-[#16A34A]" : "bg-[#CA8A04]/5 text-[#CA8A04]"
                   }`}>
-                    {item.status === "SUCCESS" ? <CheckCircle2 className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                    {item.status.toUpperCase() === "SUCCESS" || item.status.toUpperCase() === "COMPLETED" ? <CheckCircle2 className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
                   </div>
                   <div className="space-y-0.5">
                     <p className="font-jakarta font-bold text-[#1A2406] text-xl tracking-tight">
@@ -432,7 +411,7 @@ export default function DashboardPage() {
                 
                 <div className="flex items-center gap-6">
                   <div className={`px-4 py-2.5 rounded-full text-[9px] font-extrabold tracking-[0.2em] uppercase ${
-                    item.status === "SUCCESS" ? "bg-[#1A2406] text-white" : "bg-white border border-black/[0.05] text-[#CA8A04]"
+                    item.status.toUpperCase() === "SUCCESS" || item.status.toUpperCase() === "COMPLETED" ? "bg-[#1A2406] text-white" : "bg-white border border-black/[0.05] text-[#CA8A04]"
                   }`}>
                     {item.status}
                   </div>

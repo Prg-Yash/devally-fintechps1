@@ -39,14 +39,14 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
       <motion.aside
         animate={{ width: collapsed ? 80 : 280 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="relative flex flex-col h-full bg-[#1A2406] text-white overflow-hidden rounded-[32px] shadow-[0_20px_50px_rgba(13,17,4,0.15)] border border-white/5"
+        className="relative flex flex-col h-full bg-[#1A2406] text-white overflow-hidden rounded-[20px] shadow-[0_20px_50px_rgba(13,17,4,0.15)] border border-white/5"
       >
         {/* Logo Section */}
-        <div className="flex items-center gap-4 px-7 py-10 border-b border-white/5 overflow-hidden">
-          <div className="w-10 h-10 rounded-2xl bg-[#D9F24F] flex items-center justify-center shrink-0 shadow-[0_8px_20px_rgba(217,242,79,0.25)]">
-            <Activity className="w-6 h-6 text-[#1A2406]" />
+        <div className="flex items-center gap-4 px-6 py-10 border-b border-white/5 overflow-hidden">
+          <div className="w-10 h-10 rounded-xl bg-[#D9F24F] flex items-center justify-center shrink-0 shadow-[0_8px_20px_rgba(217,242,79,0.25)]">
+            <Activity className="w-5 h-5 text-[#1A2406]" />
           </div>
-          <AnimatePresence>
+          <AnimatePresence mode="wait">
             {!collapsed && (
               <motion.span
                 key="logo-text"
@@ -62,14 +62,13 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
           </AnimatePresence>
         </div>
 
-        {/* Navigation Sidebar */}
-        <nav className="flex-1 py-10 px-4 space-y-3">
+        <nav className="flex-1 py-10 px-2 space-y-3">
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + '/')
             return (
               <Link key={href} href={href}>
                 <div
-                  className={`relative flex items-center gap-4 px-4 py-4 rounded-2xl transition-all duration-300 group cursor-pointer
+                  className={`relative flex items-center gap-4 px-4 py-4 rounded-xl transition-all duration-300 group cursor-pointer
                     ${active
                       ? 'bg-white/5 text-white shadow-[0_0_20px_rgba(255,255,255,0.03)]'
                       : 'text-white/40 hover:bg-white/5 hover:text-white'
@@ -79,11 +78,13 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
                   {active && (
                     <motion.div 
                       layoutId="sidebar-active-pill"
-                      className="absolute left-0 top-3 bottom-3 w-1 bg-[#D9F24F] rounded-full shadow-[0_0_15px_rgba(217,242,79,0.6)]"
+                      className="absolute left-1 top-3 bottom-3 w-1 bg-[#D9F24F] rounded-full shadow-[0_0_15px_rgba(217,242,79,0.6)]"
                     />
                   )}
                   
-                  <Icon className={`w-5 h-5 shrink-0 transition-colors duration-300 ${active ? 'text-[#D9F24F]' : 'text-white/40 group-hover:text-white'}`} />
+                  <div className="w-10 flex justify-center shrink-0">
+                    <Icon className={`w-5 h-5 transition-colors duration-300 ${active ? 'text-[#D9F24F]' : 'text-white/40 group-hover:text-white'}`} />
+                  </div>
                   
                   <AnimatePresence>
                     {!collapsed && (
@@ -105,13 +106,14 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
           })}
         </nav>
 
-        {/* Footer Sidebar */}
-        <div className="px-4 py-10 border-t border-white/5">
+        <div className="px-2 py-10 border-t border-white/5">
           <button
             onClick={handleSignOut}
-            className="flex items-center gap-4 px-4 py-4 w-full rounded-2xl text-white/30 hover:bg-white/5 hover:text-white transition-all duration-300 group"
+            className="flex items-center gap-4 px-4 py-4 w-full rounded-xl text-white/30 hover:bg-white/5 hover:text-white transition-all duration-300 group"
           >
-            <LogOut className="w-5 h-5 shrink-0 group-hover:text-red-400 transition-colors duration-300" />
+            <div className="w-10 flex justify-center shrink-0">
+              <LogOut className="w-5 h-5 group-hover:text-red-400 transition-colors duration-300" />
+            </div>
             <AnimatePresence>
               {!collapsed && (
                 <motion.span
