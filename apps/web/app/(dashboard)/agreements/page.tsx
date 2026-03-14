@@ -32,9 +32,9 @@ import {
   Zap,
   ChevronRight,
   ShieldAlert,
-  Gavel,
   AlertCircle
 } from "lucide-react";
+import Link from "next/link";
 import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { sepolia } from "thirdweb/chains";
 import { prepareContractCall, readContract, sendAndConfirmTransaction } from "thirdweb";
@@ -124,10 +124,7 @@ export default function AgreementsPage() {
   const [incomingAgreements, setIncomingAgreements] = useState<Agreement[]>([]);
   const [outgoingAgreements, setOutgoingAgreements] = useState<Agreement[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isFunding, setIsFunding] = useState(false);
   const [txStep, setTxStep] = useState<TxStep>("idle");
-  const [txStepDescription, setTxStepDescription] = useState("Waiting for action");
 
   const [fundedProjects, setFundedProjects] = useState<OnchainProject[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
@@ -137,15 +134,6 @@ export default function AgreementsPage() {
   const [releaseAmount, setReleaseAmount] = useState("");
   const [isReleasing, setIsReleasing] = useState(false);
   const [activeTab, setActiveTab] = useState<"incoming" | "outgoing">("incoming");
-
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    freelancerAddress: "",
-    amount: "",
-    dueDate: "",
-    receiverEmail: "",
-  });
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
   const pusdContract = useMemo(() => getPusdContract(thirdwebClient), []);
@@ -208,177 +196,6 @@ export default function AgreementsPage() {
     fetchOnchainProjects();
   }, [permitOwnerAddress]);
 
-  /* ─── Metadata Persistence ───────────────────────────────────────── */
-
-  const saveAgreementMetadata = async (projectId: bigint) => {
-    if (!session?.user?.id || !formData.receiverEmail) return;
-    try {
-      await fetch(`${API_BASE_URL}/agreements`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: formData.title,
-          description: formData.description,
-          amount: formData.amount ? parseFloat(formData.amount) : 0,
-          currency: "PUSD",
-          receiverEmail: formData.receiverEmail,
-          creatorId: session.user.id,
-          dueDate: formData.dueDate ? new Date(formData.dueDate) : null,
-          projectId: Number(projectId),
-          freelancerAddress: formData.freelancerAddress,
-        }),
-      });
-    } catch (error) {
-      console.error("Metadata persistence warning:", error);
-    }
-  };
-
-  /* ─── Create & Fund Agreement (Permit + createAndFundAgreement) ── */
-
-  const handleCreateAgreement = async () => {
-    if (!permitOwnerAddress) {
-      toast.error("Connect your smart wallet first");
-      return;
-    }
-
-    if (activeWallet?.id === "smart" && !adminAccount) {
-      toast.error("Could not resolve your admin EOA. Reconnect wallet and try again.");
-      return;
-    }
-
-    const fundingAccount = adminAccount || account;
-    if (!fundingAccount) {
-      toast.error("Unable to resolve funding wallet account");
-      return;
-    }
-
-    const ownerAddress = fundingAccount.address as `0x${string}`;
-
-    const recipientAddr = formData.freelancerAddress.trim();
-    if (!recipientAddr || !formData.amount || !formData.title || !formData.dueDate) {
-      toast.error("Freelancer wallet, amount, title, and due date are required");
-      return;
-    }
-
-    try {
-      setIsFunding(true);
-
-      // ── Step 1: Request EIP-2612 Permit Signature ──────────────────
-      setTxStep("signing");
-      setTxStepDescription("Please sign the PUSD permit in your wallet…");
-
-      const scaledAmount = scalePusdAmount(formData.amount);
-      const permitDeadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 60); // 1 hour
-
-      // Query on-chain nonce — critical for valid permit
-      const nonce = await getPermitNonce(thirdwebClient, ownerAddress);
-
-      const permitDomain = {
-        ...PERMIT_DOMAIN,
-        verifyingContract: PUSD_CONTRACT_ADDRESS as `0x${string}`,
-      } as const;
-
-      const permitTypes = {
-        Permit: [
-          { name: "owner", type: "address" },
-          { name: "spender", type: "address" },
-          { name: "value", type: "uint256" },
-          { name: "nonce", type: "uint256" },
-          { name: "deadline", type: "uint256" },
-        ],
-      } as const;
-
-      const permitMessage = {
-        owner: ownerAddress,
-        spender: ESCROW_CONTRACT_ADDRESS as `0x${string}`,
-        value: scaledAmount,
-        nonce,
-        deadline: permitDeadline,
-      } as const;
-
-      console.log("Permit debug →", {
-        ownerAddress,
-        spender: ESCROW_CONTRACT_ADDRESS,
-        pusd: PUSD_CONTRACT_ADDRESS,
-        nonce: nonce.toString(),
-        amount: scaledAmount.toString(),
-        deadline: permitDeadline.toString(),
-        domain: permitDomain,
-      });
-
-      const signature = await fundingAccount.signTypedData({
-        domain: permitDomain,
-        types: permitTypes,
-        primaryType: "Permit",
-        message: permitMessage,
-      });
-
-      console.log("Validating generated signature...");
-      const signatureValid = await verifyTypedData({
-        address: ownerAddress,
-        domain: permitDomain,
-        types: permitTypes,
-        primaryType: "Permit",
-        message: permitMessage,
-        signature,
-      });
-
-      if (!signatureValid) {
-        throw new Error("Signature verification failed locally! The domain parameters (Version, Name, Token Address) may not match the deployed PUSD contract.");
-      }
-
-      const { v, r, s } = splitSignature(signature);
-      const permitV = Number(v);
-
-      // ── Step 2: Call createAndFundAgreement on PayCrowEscrow ────────
-      setTxStep("funding");
-      setTxStepDescription("Submitting escrow funding transaction on Sepolia…");
-
-      const dueDateTimestamp = BigInt(Math.floor(new Date(formData.dueDate).getTime() / 1000));
-
-      const tx = prepareContractCall({
-        contract: escrowContract,
-        method:
-          "function createAndFundAgreement(address _freelancer, uint256 _amount, uint256 _deadline, uint8 v, bytes32 r, bytes32 s)",
-        params: [recipientAddr, scaledAmount, permitDeadline, permitV, r, s],
-      });
-
-      await sendAndConfirmTransaction({
-        account: fundingAccount,
-        transaction: tx,
-      });
-
-      // ── Step 3: Refresh & Done ─────────────────────────────────────
-      const projects = await getProjectsForClient(thirdwebClient, ownerAddress, 12);
-      setFundedProjects(projects);
-      if (projects.length > 0) {
-        await saveAgreementMetadata(projects[0].projectId);
-      }
-
-      setTxStep("verified");
-      setTxStepDescription("Agreement created & funds locked in escrow ✓");
-      toast.success("Funds locked in escrow successfully!");
-
-      setFormData({
-        title: "",
-        description: "",
-        freelancerAddress: "",
-        amount: "",
-        dueDate: "",
-        receiverEmail: "",
-      });
-      setIsDialogOpen(false);
-      fetchAgreements();
-    } catch (error: any) {
-      console.error("Escrow funding failed:", error);
-      setTxStep("error");
-      setTxStepDescription(error?.message || "Funding failed. Check wallet and signature.");
-      toast.error("Failed to fund escrow agreement");
-    } finally {
-      setIsFunding(false);
-      setTimeout(() => setTxStep("idle"), 3000);
-    }
-  };
 
   /* ─── Release Milestone ──────────────────────────────────────────── */
 
@@ -644,48 +461,6 @@ export default function AgreementsPage() {
       animate="visible"
       className="mx-auto max-w-6xl space-y-10 pt-2 pb-12"
     >
-      {/* ── Wallet Banner (Dashboard Style) ── */}
-      <motion.div variants={maskedReveal} className="relative bg-[#1A2406] text-white rounded-[32px] p-8 shadow-2xl shadow-[#1A2406]/20 overflow-hidden group">
-        <div className="absolute inset-0 bg-gradient-to-tr from-[#D9F24F]/10 via-transparent to-transparent opacity-50" />
-        <div className="absolute top-0 right-0 p-8 opacity-5">
-          <ShieldCheck className="w-32 h-32 text-[#D9F24F]" />
-        </div>
-        
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-[#D9F24F] rounded-xl shadow-[0_0_20px_rgba(217,242,79,0.4)] transition-transform group-hover:scale-110">
-                <Wallet className="w-5 h-5 text-[#1A2406]" />
-              </div>
-              <CardTitle className="text-xl font-jakarta font-bold tracking-tight">Smart Settlement Protocol</CardTitle>
-            </div>
-            <CardDescription className="text-white/40 text-sm font-medium">
-              EIP-2612 Permit-enabled Escrow • Sepolia Testnet Active
-            </CardDescription>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center gap-4">
-            <ConnectButton
-              client={thirdwebClient}
-              chain={sepolia}
-              accountAbstraction={{ chain: sepolia, sponsorGas: true }}
-              connectButton={{ label: "Authenticate Wallet" }}
-            />
-            
-            <div className="flex flex-wrap justify-center gap-2">
-              <Badge variant="outline" className={`${txStepMeta[txStep].color} border-none rounded-full px-3 py-1 shadow-sm`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-current mr-2 animate-pulse" />
-                {txStepMeta[txStep].label}
-              </Badge>
-              {isSmartAccountMode && (
-                <Badge variant="outline" className="bg-[#D9F24F] text-[#1A2406] border-none rounded-full px-3 py-1 font-bold">
-                  AA Mode
-                </Badge>
-              )}
-            </div>
-          </div>
-        </div>
-      </motion.div>
 
       {/* ── Header Section ── */}
       <motion.div variants={maskedReveal} className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 px-1">
@@ -704,117 +479,14 @@ export default function AgreementsPage() {
           </p>
         </div>
         
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <motion.div whileHover={HOVER_SCALE} whileTap={BUTTON_PRESS}>
-              <button className="rounded-xl bg-[#1A2406] text-white px-6 py-3.5 text-xs font-bold tracking-tight flex items-center gap-2 shadow-xl shadow-[#1A2406]/10">
-                <Plus className="w-4 h-4 text-[#D9F24F]" />
-                Create New Agreement
-              </button>
-            </motion.div>
-          </DialogTrigger>
-          
-          <DialogContent className="max-w-2xl bg-white border border-black/5 rounded-2xl shadow-xl overflow-hidden p-0">
-            <div className="bg-[#1A2406] p-6 text-white relative">
-              <div className="absolute top-0 right-0 p-6 opacity-10">
-                <Gavel className="w-16 h-16" />
-              </div>
-              <DialogTitle className="text-xl font-jakarta font-bold tracking-tight">Lock Funds in Escrow</DialogTitle>
-              <DialogDescription className="text-white/40 text-[11px] font-medium uppercase tracking-[0.05em] mt-0.5">
-                Funds are held by the Nexus Smart Vault until released.
-              </DialogDescription>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Wallet Context Info */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-black/[0.05] bg-slate-50/50 p-3">
-                  <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-widest leading-none mb-2">Smart Account</p>
-                  <p className="text-[11px] font-mono font-bold text-[#1A2406]">{smartAccountAddress ? shortAddress(smartAccountAddress) : "Disconnected"}</p>
-                </div>
-                <div className="rounded-xl border border-black/[0.05] bg-slate-50/50 p-3">
-                  <p className="text-[9px] font-bold text-[#1A2406]/30 uppercase tracking-widest leading-none mb-2">Funding EOA</p>
-                  <p className="text-[11px] font-mono font-bold text-[#1A2406]">{permitOwnerAddress ? shortAddress(permitOwnerAddress) : "Disconnected"}</p>
-                </div>
-              </div>
-
-              <div className="space-y-5">
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Agreement Title *</Label>
-                  <Input placeholder="Mobile App Design" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="rounded-lg h-11 border-black/[0.1]" />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Freelancer Wallet *</Label>
-                    <Input placeholder="0x..." value={formData.freelancerAddress} onChange={(e) => setFormData({ ...formData, freelancerAddress: e.target.value })} className="rounded-lg h-11 font-mono text-xs border-black/[0.1]" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Freelancer Email *</Label>
-                    <Input type="email" placeholder="user@example.com" value={formData.receiverEmail} onChange={(e) => setFormData({ ...formData, receiverEmail: e.target.value })} className="rounded-lg h-11 border-black/[0.1]" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">PUSD Total Amount *</Label>
-                    <div className="relative">
-                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#1A2406]/30" />
-                      <Input type="number" placeholder="500" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} className="pl-8 rounded-lg h-11 border-black/[0.1]" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Target Completion *</Label>
-                    <Input type="date" value={formData.dueDate} onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })} className="rounded-lg h-11 border-black/[0.1]" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Project Narration (Optional)</Label>
-                  <textarea 
-                    className="w-full rounded-lg border border-black/[0.1] bg-white p-3 text-sm min-h-[60px] outline-none focus:ring-1 focus:ring-[#1A2406]/10" 
-                    value={formData.description} 
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Briefly state deliverables and scope..."
-                  />
-                </div>
-              </div>
-
-              {/* Progress Stepper Styled like Tickets */}
-              <div className="bg-[#1A2406]/[0.02] border border-black/[0.04] rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Zap className="w-3.5 h-3.5 text-[#1A2406]" />
-                  <span className="text-[11px] font-bold uppercase text-[#1A2406] tracking-widest">Transaction Pipeline</span>
-                </div>
-                <p className="text-[11px] font-medium text-[#1A2406]/40 mb-3">{txStepDescription}</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["signing", "funding", "verified"] as const).map((step, i) => {
-                    const isActive = txStep === step;
-                    const isPast = (step === "signing" && ["funding", "verified"].includes(txStep)) || (step === "funding" && txStep === "verified");
-                    return (
-                      <div key={step} className={`rounded-lg p-2.5 text-[10px] font-bold uppercase tracking-tight transition-all duration-300 flex items-center gap-2 ${isActive ? 'bg-[#1A2406] text-[#D9F24F]' : isPast ? 'bg-[#D9F24F]/20 text-[#1A2406]' : 'bg-slate-100 text-slate-300'}`}>
-                        <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${isActive ? 'bg-[#D9F24F] text-[#1A2406]' : isPast ? 'bg-[#1A2406] text-[#D9F24F]' : 'bg-slate-200'}`}>
-                          {isPast ? "✓" : i + 1}
-                        </div>
-                        {step === "signing" ? "Sign" : step === "funding" ? "Vault" : "Done"}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <motion.div whileTap={BUTTON_PRESS}>
-                <Button 
-                  className="w-full h-12 rounded-xl bg-[#1A2406] text-[#D9F24F] font-bold text-sm" 
-                  disabled={isFunding || !permitOwnerAddress} 
-                  onClick={handleCreateAgreement}
-                >
-                  {isFunding ? <Loader2 className="w-4 h-4 animate-spin" /> : "Authorize & Lock Funds"}
-                </Button>
-              </motion.div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Link href="/agreements/new-agreement">
+          <motion.div whileHover={HOVER_SCALE} whileTap={BUTTON_PRESS}>
+            <button className="rounded-xl bg-[#1A2406] text-white px-6 py-3.5 text-xs font-bold tracking-tight flex items-center gap-2 shadow-xl shadow-[#1A2406]/10">
+              <Plus className="w-4 h-4 text-[#D9F24F]" />
+              Create New Agreement
+            </button>
+          </motion.div>
+        </Link>
       </motion.div>
 
       {/* ── On-chain Projects Section ── */}
