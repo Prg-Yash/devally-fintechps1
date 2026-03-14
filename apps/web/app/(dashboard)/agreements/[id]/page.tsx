@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { authClient } from "@/lib/auth-client";
 import {
   formatPusdAmount,
   getEscrowContract,
@@ -81,6 +82,7 @@ export default function AgreementDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
+  const { data: session } = authClient.useSession();
 
   const account = useActiveAccount();
   const activeWallet = useActiveWallet();
@@ -95,6 +97,24 @@ export default function AgreementDetailPage() {
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
 
+  const isProtocolRoute = id?.startsWith("pid-") || !isNaN(Number(id));
+
+  const fetchAgreementFromUserLists = async (userId: string, agreementId: string) => {
+    const [incomingRes, outgoingRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/agreements/incoming?userId=${userId}`),
+      fetch(`${API_BASE_URL}/agreements/outgoing?userId=${userId}`),
+    ]);
+
+    const incomingData = incomingRes.ok ? await incomingRes.json().catch(() => ({})) : {};
+    const outgoingData = outgoingRes.ok ? await outgoingRes.json().catch(() => ({})) : {};
+
+    const incoming = Array.isArray(incomingData?.agreements) ? incomingData.agreements : [];
+    const outgoing = Array.isArray(outgoingData?.agreements) ? outgoingData.agreements : [];
+    const all = [...incoming, ...outgoing] as Agreement[];
+
+    return all.find((a) => a.id === agreementId) || null;
+  };
+
   const fetchDetails = async () => {
     try {
       setIsLoading(true);
@@ -102,19 +122,17 @@ export default function AgreementDetailPage() {
       let agreementData: Agreement | null = null;
       let targetProjectId: number | null = null;
 
-      // FIRST: Always try to fetch directly by ID
-      try {
-        const res = await fetch(`${API_BASE_URL}/agreements/${id}`);
-        if (res.ok) {
-          const data = await res.json();
-          agreementData = data.agreement || null;
+      // For normal agreement links, prefer incoming/outgoing lists scoped by logged-in user.
+      if (!isProtocolRoute && session?.user?.id) {
+        try {
+          agreementData = await fetchAgreementFromUserLists(session.user.id, id);
           targetProjectId = agreementData?.projectId ?? null;
+        } catch (e) {
+          console.warn("Scoped agreement list fetch failed", e);
         }
-      } catch (e) {
-        console.warn("Direct DB fetch failed", e);
       }
 
-      // SECOND: If not found but looks like "pid-X" or just a number, try by projectId
+      // If not found but looks like "pid-X" or just a number, try by projectId.
       if (!agreementData) {
         if (id.startsWith("pid-")) {
           targetProjectId = parseInt(id.replace("pid-", ""));
@@ -161,8 +179,10 @@ export default function AgreementDetailPage() {
   };
 
   useEffect(() => {
-    if (id) fetchDetails();
-  }, [id]);
+    if (!id) return;
+    if (!isProtocolRoute && !session?.user?.id) return;
+    fetchDetails();
+  }, [id, isProtocolRoute, session?.user?.id]);
 
   const handleReleaseFull = async () => {
     if (!onchainData || !activeSigner) return;
