@@ -4,13 +4,18 @@ import dotenv from 'dotenv';
 import razorpayRoutes from './routes/razorpay.routes';
 import agreementRoutes from './routes/agreement.routes';
 import ticketRoutes from './routes/ticket.routes';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
 const app = express();
 
 // Global Middleware
-app.use(cors({ origin: 'http://localhost:3000' }));
+app.use(
+  cors({
+    origin: [/^http:\/\/localhost:\d+$/],
+  }),
+);
 
 // Global JSON parsing generally goes here, but we excluded it because Webhooks need raw strings.
 // To add regular JSON parsing for other routes without breaking webhooks, you can do:
@@ -27,6 +32,7 @@ app.use(cors({ origin: 'http://localhost:3000' }));
 app.use('/razorpay', razorpayRoutes);
 app.use('/agreements', agreementRoutes);
 app.use('/tickets', ticketRoutes);
+app.use('/admin', adminRoutes);
 
 // General health check endpoint
 app.get('/health', (req, res) => {
