@@ -1,7 +1,5 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
 import { nextCookies } from "better-auth/next-js";
 import {
   sendVerificationEmail,
@@ -12,14 +10,7 @@ import {
 import { createAuthMiddleware } from "better-auth/api";
 import { twoFactor, openAPI } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
-
-const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL!,
-});
-
-const prisma = new PrismaClient({
-  adapter,
-});
+import prisma from "./prisma";
 
 export const auth = betterAuth({
   user: {
