@@ -4,6 +4,7 @@
   --font-sans: var(--font-geist-sans), sans-serif;
   --font-mono: var(--font-geist-mono), monospace;
   --font-jakarta: var(--font-jakarta), sans-serif;
+  --font-inter: var(--font-inter), sans-serif;
 }
 
 /* Hide Default Scrollbar for clean UI */
@@ -13,7 +14,17 @@
 * {
   -ms-overflow-style: none; /* IE and Edge */
   scrollbar-width: none; /* Firefox */
-  cursor: none !important; /* Forces custom cursor usage everywhere */
+}
+
+/* Ensure the native cursor shows everywhere by default */
+html, body {
+  cursor: auto;
+}
+
+/* Custom cursor — scoped ONLY to the landing page wrapper */
+.landing-cursor-none,
+.landing-cursor-none * {
+  cursor: none !important;
 }
 
 /* Lenis smooth scroll basic scaffolding */

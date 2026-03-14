@@ -2,24 +2,11 @@
 
 import { authClient } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
 import { Button } from "./ui/button"
 
 const PasskeyButton = () => {
   const router = useRouter()
   const { refetch } = authClient.useSession()
-
-  useEffect(() => {
-    authClient.signIn.passkey(
-      { autoFill: true },
-      {
-        onSuccess() {
-          refetch()
-          router.push("/")
-        },
-      }
-    )
-  }, [router, refetch])
 
   return (
     <Button
@@ -39,4 +26,4 @@ const PasskeyButton = () => {
   )
 }
 
-export default PasskeyButton
+export default PasskeyButton
