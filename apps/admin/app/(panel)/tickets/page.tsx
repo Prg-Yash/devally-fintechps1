@@ -4,13 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import AdminInfoModal from "@/app/components/admin-info-modal";
 import { formatDate } from "@/app/lib/admin-api";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:5000";
+
+const TICKET_STATUSES = ["OPEN", "IN_REVIEW", "RESOLVED", "CLOSED", "REJECTED"] as const;
+const TICKET_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 
 interface TicketRow {
   id: string;
   title: string;
   reason: string;
   status: string;
+  severity: string;
   evidenceUrl?: string | null;
   createdAt: string;
   raisedBy: { id: string; name: string; email: string };
@@ -23,13 +27,49 @@ interface TicketsResponse {
   tickets: TicketRow[];
 }
 
-const summarizeError = (error: unknown) => (error instanceof Error ? error.message : "Unexpected error");
+const summarizeError = (err: unknown) => (err instanceof Error ? err.message : "Unexpected error");
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const updateTicket = async (
+    ticketId: string,
+    payload: { status?: string; severity?: string }
+  ) => {
+    setUpdatingId(ticketId);
+    setError(null);
+    const url = `${API_BASE_URL}/admin/tickets/${ticketId}`;
+
+    try {
+      const response = await fetch(url, {
+        method: "PATCH",
+        mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(String(response.status));
+      }
+
+      setTickets((prev) =>
+        prev.map((t) => (t.id === ticketId ? { ...t, ...payload } : t))
+      );
+      if (selectedTicket?.id === ticketId) {
+        setSelectedTicket((prev) => (prev ? { ...prev, ...payload } : null));
+      }
+    } catch {
+      setError(
+        "Network error: Verify Express is running at port 5000 and CORS is enabled."
+      );
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   useEffect(() => {
     const loadTickets = async () => {
@@ -88,6 +128,7 @@ export default function TicketsPage() {
             <tr>
               <th>Title</th>
               <th>Status</th>
+              <th>Severity</th>
               <th>Reason</th>
               <th>Raised By</th>
               <th>Against</th>
@@ -98,11 +139,11 @@ export default function TicketsPage() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={7}>Loading tickets...</td>
+                <td colSpan={8}>Loading tickets...</td>
               </tr>
             ) : tickets.length === 0 ? (
               <tr>
-                <td colSpan={7}>No tickets found.</td>
+                <td colSpan={8}>No tickets found.</td>
               </tr>
             ) : (
               tickets.map((ticket) => (
@@ -116,7 +157,38 @@ export default function TicketsPage() {
                       {ticket.title}
                     </button>
                   </td>
-                  <td>{ticket.status}</td>
+                  <td>
+                    <select
+                      value={ticket.status}
+                      disabled={updatingId === ticket.id}
+                      onChange={(e) =>
+                        updateTicket(ticket.id, { status: e.target.value })
+                      }
+                      className="min-w-28 rounded-md border border-[#d9d0bf] bg-[#fffdf8] px-2 py-1 text-sm text-[#122016] focus:border-[#1d4c35] focus:outline-none focus:ring-1 focus:ring-[#1d4c35] disabled:opacity-60"
+                    >
+                      {TICKET_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s.replace("_", " ")}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={ticket.severity ?? "LOW"}
+                      disabled={updatingId === ticket.id}
+                      onChange={(e) =>
+                        updateTicket(ticket.id, { severity: e.target.value })
+                      }
+                      className="min-w-24 rounded-md border border-[#d9d0bf] bg-[#fffdf8] px-2 py-1 text-sm text-[#122016] focus:border-[#1d4c35] focus:outline-none focus:ring-1 focus:ring-[#1d4c35] disabled:opacity-60"
+                    >
+                      {TICKET_SEVERITIES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td>{ticket.reason}</td>
                   <td>{ticket.raisedBy.email}</td>
                   <td>{ticket.againstUser.email}</td>
@@ -149,6 +221,16 @@ export default function TicketsPage() {
                       'bg-[#dff4e6] text-[#1f6a42]'
                     }`}>
                       {selectedTicket.status}
+                    </span>
+                  </p>
+                  <p><strong>Severity:</strong> 
+                    <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      selectedTicket.severity === 'CRITICAL' ? 'bg-[#fde8e8] text-[#8f1f2f]' :
+                      selectedTicket.severity === 'HIGH' ? 'bg-[#fde8c8] text-[#7b4c00]' :
+                      selectedTicket.severity === 'MEDIUM' ? 'bg-[#ebf4f9] text-[#1f6a8f]' :
+                      'bg-[#e8f4eb] text-[#1f6a42]'
+                    }`}>
+                      {selectedTicket.severity ?? 'LOW'}
                     </span>
                   </p>
                   <p><strong>Reason Category:</strong> <span className="text-[#8f1f2f] font-medium">{selectedTicket.reason}</span></p>

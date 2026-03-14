@@ -1,3 +1,4 @@
+import express from 'express';
 import { Router } from 'express';
 import {
   banOrUnbanUser,
@@ -8,6 +9,7 @@ import {
   getAdminTickets,
   getAdminUserById,
   getAdminUsers,
+  updateAdminTicket,
 } from '../controllers/admin.controller';
 
 const router = Router();
@@ -19,6 +21,7 @@ router.patch('/users/:userId/ban', banOrUnbanUser);
 router.delete('/users/:userId', deleteUserByAdmin);
 router.get('/agreements', getAdminAgreements);
 router.get('/tickets', getAdminTickets);
+router.patch('/tickets/:ticketId', express.json(), updateAdminTicket);
 router.get('/purchases', getAdminPurchases);
 
 export default router;

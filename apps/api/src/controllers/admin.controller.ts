@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { TicketSeverity } from '@prisma/client';
 import prisma from '../config/prisma';
 
 const DEFAULT_LIMIT = 100;
@@ -340,6 +341,78 @@ export const getAdminPurchases = async (req: Request, res: Response) => {
     return res.json({ count: purchases.length, purchases });
   } catch (error: any) {
     console.error('Error fetching admin purchases:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
+const ALLOWED_TICKET_STATUSES = ['OPEN', 'IN_REVIEW', 'RESOLVED', 'CLOSED', 'REJECTED'] as const;
+const TICKET_SEVERITY_VALUES: TicketSeverity[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+
+/** Request body for PATCH /admin/tickets/:ticketId */
+interface TicketUpdateBody {
+  status?: string;
+  severity?: string;
+}
+
+/** Success response for PATCH /admin/tickets/:ticketId */
+interface TicketUpdateSuccessPayload {
+  message: string;
+  ticket: Record<string, unknown>;
+}
+
+export const updateAdminTicket = async (req: Request, res: Response) => {
+  try {
+    const ticketId = Array.isArray(req.params.ticketId) ? req.params.ticketId[0] : req.params.ticketId;
+    const body = req.body as TicketUpdateBody;
+    const { status, severity } = body;
+
+    if (!ticketId) {
+      return res.status(400).json({ error: 'ticketId is required' });
+    }
+
+    const data: { status?: string; severity?: TicketSeverity } = {};
+
+    if (status !== undefined) {
+      const normalized = String(status).toUpperCase();
+      if (!ALLOWED_TICKET_STATUSES.includes(normalized as (typeof ALLOWED_TICKET_STATUSES)[number])) {
+        return res.status(400).json({
+          error: `Invalid status. Allowed: ${ALLOWED_TICKET_STATUSES.join(', ')}`,
+        });
+      }
+      data.status = normalized;
+    }
+
+    if (severity !== undefined) {
+      const normalized = String(severity).toUpperCase() as TicketSeverity;
+      if (!TICKET_SEVERITY_VALUES.includes(normalized)) {
+        return res.status(400).json({
+          error: `Invalid severity. Allowed: ${TICKET_SEVERITY_VALUES.join(', ')}`,
+        });
+      }
+      data.severity = normalized;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'At least one of status or severity is required' });
+    }
+
+    const ticket = await prisma.ticket.update({
+      where: { id: ticketId },
+      data,
+      include: {
+        raisedBy: { select: { id: true, name: true, email: true } },
+        againstUser: { select: { id: true, name: true, email: true } },
+        agreement: { select: { id: true, title: true, status: true } },
+      },
+    });
+
+    const payload: TicketUpdateSuccessPayload = { message: 'Ticket updated successfully', ticket };
+    return res.status(200).json(payload);
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    console.error('Error updating admin ticket:', error);
     return res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 };
