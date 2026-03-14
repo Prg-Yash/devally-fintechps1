@@ -18,7 +18,7 @@ import {
   ChevronLeft,
   Menu,
 } from 'lucide-react'
-import { ConnectButton, useActiveAccount } from "thirdweb/react"
+import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react"
 import { thirdwebClient } from "@/lib/thirdweb-client"
 import { sepolia } from "thirdweb/chains"
 import { AICoPilotPopup } from '@/components/AICoPilotPopup'
@@ -39,9 +39,14 @@ const navItems = [
 const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) => {
   const pathname = usePathname()
   const activeAccount = useActiveAccount()
+  const activeWallet = useActiveWallet()
+  const adminWallet = useAdminWallet()
   const [pccBalance, setPccBalance] = useState<string>('0')
   const [isBalanceLoading, setIsBalanceLoading] = useState(false)
   const [pccContractAddress, setPccContractAddress] = useState<string | undefined>(undefined)
+
+  const adminAccount = activeWallet?.getAdminAccount?.() || adminWallet?.getAccount?.()
+  const walletAddressForBalance = adminAccount?.address || activeAccount?.address
 
   useEffect(() => {
     const fetchPccConfig = async () => {
@@ -61,7 +66,7 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
   }, [])
 
   useEffect(() => {
-    const walletAddress = activeAccount?.address
+    const walletAddress = walletAddressForBalance
     if (!walletAddress) {
       setPccBalance('0')
       return
@@ -92,7 +97,7 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
       clearInterval(interval)
       window.removeEventListener('pcc:purchase-completed', onPurchaseCompleted)
     }
-  }, [activeAccount?.address, pccContractAddress])
+  }, [walletAddressForBalance, pccContractAddress])
 
   const handleSignOut = async () => {
     await authClient.signOut()
@@ -181,7 +186,7 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
             <p className="mt-1.5 text-lg font-bold text-white">
               {isBalanceLoading ? 'Loading…' : `${pccBalance} PCC`}
             </p>
-            {!activeAccount?.address && (
+            {!walletAddressForBalance && (
               <p className="text-[11px] text-white/40 mt-1">Connect wallet to fetch balance</p>
             )}
           </div>

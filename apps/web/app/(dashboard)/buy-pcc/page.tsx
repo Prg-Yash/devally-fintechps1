@@ -10,7 +10,7 @@ import { Coins, Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
 import Script from "next/script";
-import { useActiveAccount } from "thirdweb/react";
+import { useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { formatPcc, inrToPcc, INR_TO_PCC_RATE } from "@/lib/paycrow-coin";
 
 interface Purchase {
@@ -28,12 +28,19 @@ const API_BASE_URL = "/api";
 
 export default function BuyCryptoPage() {
   const activeAccount = useActiveAccount();
+  const activeWallet = useActiveWallet();
+  const adminWallet = useAdminWallet();
   const [amount, setAmount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
   const [isClaimingByOrder, setIsClaimingByOrder] = useState<Record<string, boolean>>({});
+  const [isPayingByOrder, setIsPayingByOrder] = useState<Record<string, boolean>>({});
+  const [isCancellingByOrder, setIsCancellingByOrder] = useState<Record<string, boolean>>({});
   const { data: session } = authClient.useSession();
+
+  const adminAccount = activeWallet?.getAdminAccount?.() || adminWallet?.getAccount?.();
+  const payoutWalletAddress = adminAccount?.address || activeAccount?.address;
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -57,7 +64,89 @@ export default function BuyCryptoPage() {
   };
 
   const convertedPcc = inrToPcc(amount || 0);
-  const canPay = Boolean(activeAccount?.address) && amount > 0 && !isLoading;
+  const canPay = Boolean(payoutWalletAddress) && amount > 0 && !isLoading;
+
+  const openRazorpayCheckout = async (input: {
+    orderId: string;
+    amountInRupees: number;
+    walletAddress: string;
+    label: string;
+  }) => {
+    const { orderId, amountInRupees, walletAddress, label } = input;
+    const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+    if (!keyId) {
+      toast.error("NEXT_PUBLIC_RAZORPAY_KEY_ID is missing in apps/web/.env");
+      return;
+    }
+
+    const options = {
+      key: keyId,
+      amount: Math.round(amountInRupees * 100),
+      currency: "INR",
+      name: "Devally Fintech",
+      description: label,
+      order_id: orderId,
+      handler: async function (response: any) {
+        console.log("✅ Razorpay Payment Succeeded", response);
+        console.log("⏳ Verifying payment with backend...");
+
+        try {
+          const verifyRes = await fetch(`${API_BASE_URL}/razorpay/verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              walletAddress,
+            }),
+          });
+
+          const verifyData = await verifyRes.json().catch(() => ({}));
+
+          if (!verifyRes.ok) {
+            console.error("Payment verification failed", verifyData);
+            toast.error(verifyData?.message || "Payment verification failed.");
+            return;
+          }
+
+          toast.success("Payment successful. You can now claim PCC.");
+          window.dispatchEvent(new CustomEvent("pcc:purchase-completed"));
+          if (session?.user?.id) {
+            await fetchPurchases(session.user.id);
+          }
+        } catch (err) {
+          console.error("Verification error:", err);
+          toast.error("Error verifying payment");
+        } finally {
+          setIsLoading(false);
+          setIsPayingByOrder((prev) => ({ ...prev, [orderId]: false }));
+        }
+      },
+      modal: {
+        ondismiss: function () {
+          setIsLoading(false);
+          setIsPayingByOrder((prev) => ({ ...prev, [orderId]: false }));
+        },
+      },
+      prefill: {
+        name: session?.user?.name || "User",
+        email: session?.user?.email,
+      },
+      theme: {
+        color: "#2563EB",
+      },
+    };
+
+    // @ts-ignore Razorpay is loaded via script
+    const rzp = new window.Razorpay(options);
+    rzp.on("payment.failed", function (response: any) {
+      toast.error(`Payment Failed: ${response.error.description || "Something went wrong."}`);
+      setIsLoading(false);
+      setIsPayingByOrder((prev) => ({ ...prev, [orderId]: false }));
+    });
+    rzp.open();
+  };
 
   const handlePayment = async () => {
     if (!amount || amount <= 0) {
@@ -70,13 +159,17 @@ export default function BuyCryptoPage() {
       return;
     }
 
-    if (!activeAccount?.address) {
+    if (!payoutWalletAddress) {
       toast.error("Connect your wallet to buy PCC");
       return;
     }
 
-    const walletAddress = activeAccount.address;
-    const pccToReceive = convertedPcc;
+    const walletAddress = payoutWalletAddress;
+    console.log("[PCC_RECIPIENT] Using payout wallet for new order", {
+      activeAccountAddress: activeAccount?.address,
+      adminAccountAddress: adminAccount?.address,
+      selectedPayoutWalletAddress: walletAddress,
+    });
 
     setIsLoading(true);
 
@@ -97,90 +190,13 @@ export default function BuyCryptoPage() {
       }
 
       const orderData = await response.json();
-
-      // 2. Open Razorpay Checkout modal
-      const options = {
-        key: orderData.keyId,
-        amount: orderData.amount, // amount in paise
-        currency: "INR",
-        name: "Devally Fintech",
-        description: `Convert INR to PCC (${amount} INR -> ${formatPcc(pccToReceive)} PCC)`,
-        order_id: orderData.orderId,
-        handler: async function (response: any) {
-          console.log("✅ Razorpay Payment Succeeded", response);
-          console.log("⏳ Verifying payment with backend and minting PCC...");
-
-          try {
-            // 3. Synchronously verify the payment with our backend
-            const verifyRes = await fetch(`${API_BASE_URL}/razorpay/verify`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                walletAddress,
-              }),
-            });
-
-            const verifyData = await verifyRes.json().catch(() => ({}));
-
-            if (verifyRes.ok) {
-              console.log("✅ Backend verification complete.", verifyData);
-              if (verifyData?.canClaim) {
-                toast.success("Payment verified. PCC is claimable.");
-              } else {
-                toast.success("Payment verified and PCC minted to your wallet.");
-              }
-
-              window.dispatchEvent(
-                new CustomEvent("pcc:purchase-completed", {
-                  detail: {
-                    walletAddress,
-                    contractAddress: verifyData?.contractAddress,
-                    txHash: verifyData?.txHash,
-                  },
-                }),
-              );
-
-              setAmount(0);
-              if (session?.user?.id) {
-                fetchPurchases(session.user.id);
-              }
-            } else {
-              console.error("Payment verification failed", verifyData);
-              toast.error(verifyData?.message || "Payment verification failed. Please contact support.");
-            }
-          } catch (err) {
-            console.error("Verification error:", err);
-            toast.error("Error connecting to verification server.");
-          } finally {
-            setIsLoading(false);
-          }
-        },
-        modal: {
-          ondismiss: function () {
-            setIsLoading(false);
-          },
-        },
-        prefill: {
-          name: session.user.name || "User",
-          email: session.user.email,
-        },
-        theme: {
-          color: "#2563EB", // Primary blue color
-        },
-      };
-
-      // @ts-ignore - Razorpay is loaded dynamically via script tag
-      const rzp = new window.Razorpay(options);
-
-      rzp.on("payment.failed", function (response: any) {
-        toast.error(`Payment Failed: ${response.error.description || "Something went wrong."}`);
-        setIsLoading(false);
+      await openRazorpayCheckout({
+        orderId: orderData.orderId,
+        amountInRupees: amount,
+        walletAddress,
+        label: `Convert INR to PCC (${amount} INR -> ${formatPcc(convertedPcc)} PCC)`,
       });
-
-      rzp.open();
+      setAmount(0);
     } catch (error) {
       console.error(error);
       toast.error("Failed to initialize payment. Please check if the API is running.");
@@ -188,8 +204,61 @@ export default function BuyCryptoPage() {
     }
   };
 
+  const handlePayNow = async (purchase: Purchase) => {
+    if (!payoutWalletAddress) {
+      toast.error("Connect your wallet first");
+      return;
+    }
+
+    setIsPayingByOrder((prev) => ({ ...prev, [purchase.razorpayOrderId]: true }));
+    setIsLoading(true);
+    try {
+      await openRazorpayCheckout({
+        orderId: purchase.razorpayOrderId,
+        amountInRupees: purchase.amount,
+        walletAddress: payoutWalletAddress,
+        label: `Pay pending order (${purchase.amount.toFixed(2)} INR)`,
+      });
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to open payment");
+      setIsLoading(false);
+      setIsPayingByOrder((prev) => ({ ...prev, [purchase.razorpayOrderId]: false }));
+    }
+  };
+
+  const handleCancelOrder = async (purchase: Purchase) => {
+    if (!session?.user?.id) {
+      toast.error("Login required");
+      return;
+    }
+
+    try {
+      setIsCancellingByOrder((prev) => ({ ...prev, [purchase.razorpayOrderId]: true }));
+      const res = await fetch(`${API_BASE_URL}/razorpay/cancel-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: purchase.razorpayOrderId,
+          userId: session.user.id,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to cancel order");
+      }
+
+      toast.success("Order cancelled successfully");
+      await fetchPurchases(session.user.id);
+    } catch (error: any) {
+      toast.error(error?.message || "Cancel failed");
+    } finally {
+      setIsCancellingByOrder((prev) => ({ ...prev, [purchase.razorpayOrderId]: false }));
+    }
+  };
+
   const handleClaimTokens = async (purchase: Purchase) => {
-    if (!activeAccount?.address) {
+    if (!payoutWalletAddress) {
       toast.error("Connect your wallet first");
       return;
     }
@@ -202,7 +271,7 @@ export default function BuyCryptoPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orderId: purchase.razorpayOrderId,
-          walletAddress: activeAccount.address,
+          walletAddress: payoutWalletAddress,
         }),
       });
 
@@ -210,6 +279,16 @@ export default function BuyCryptoPage() {
       if (!claimRes.ok) {
         throw new Error(claimData?.error || "Claim request failed");
       }
+
+      console.log("[PCC_CLAIM][CLIENT] Claim response", {
+        orderId: purchase.razorpayOrderId,
+        connectedWallet: activeAccount?.address,
+        adminWallet: adminAccount?.address,
+        selectedPayoutWalletAddress: payoutWalletAddress,
+        txHash: claimData?.txHash,
+        mintedTo: claimData?.mintedTo,
+        mintedPccAmount: claimData?.mintedPccAmount,
+      });
 
       toast.success("PCC claimed successfully to connected wallet.");
       window.dispatchEvent(new CustomEvent("pcc:purchase-completed"));
@@ -235,6 +314,8 @@ export default function BuyCryptoPage() {
         return "bg-indigo-100 text-indigo-800";
       case "PENDING":
         return "bg-yellow-100 text-yellow-800";
+      case "CANCELLED":
+        return "bg-slate-100 text-slate-700";
       case "FAILED":
       case "TRANSFER_FAILED":
         return "bg-red-100 text-red-800";
@@ -293,9 +374,15 @@ export default function BuyCryptoPage() {
               </span>
             </div>
 
-            {!activeAccount?.address && (
+            {!payoutWalletAddress && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 Connect your wallet to enable Razorpay payment and receive PCC.
+              </div>
+            )}
+
+            {payoutWalletAddress && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                PCC receiver wallet: {payoutWalletAddress}
               </div>
             )}
           </CardContent>
@@ -345,7 +432,7 @@ export default function BuyCryptoPage() {
                         <Button
                           size="sm"
                           onClick={() => handleClaimTokens(purchase)}
-                          disabled={Boolean(isClaimingByOrder[purchase.razorpayOrderId]) || !activeAccount?.address}
+                          disabled={Boolean(isClaimingByOrder[purchase.razorpayOrderId]) || !payoutWalletAddress}
                         >
                           {isClaimingByOrder[purchase.razorpayOrderId] ? (
                             <>
@@ -354,6 +441,41 @@ export default function BuyCryptoPage() {
                             </>
                           ) : (
                             "Claim PCC"
+                          )}
+                        </Button>
+                      </div>
+                    )}
+
+                    {purchase.status === "PENDING" && (
+                      <div className="mt-4 flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleCancelOrder(purchase)}
+                          disabled={Boolean(isCancellingByOrder[purchase.razorpayOrderId])}
+                        >
+                          {isCancellingByOrder[purchase.razorpayOrderId] ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Cancelling...
+                            </>
+                          ) : (
+                            "Cancel"
+                          )}
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          onClick={() => handlePayNow(purchase)}
+                          disabled={Boolean(isPayingByOrder[purchase.razorpayOrderId]) || !payoutWalletAddress}
+                        >
+                          {isPayingByOrder[purchase.razorpayOrderId] ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Opening...
+                            </>
+                          ) : (
+                            "Pay Now"
                           )}
                         </Button>
                       </div>

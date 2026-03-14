@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import prisma from "@/lib/prisma";
-import {
-  getPccContractAddress,
-  INR_TO_PCC_RATE,
-  isPccDistributorConfigured,
-  mintPccToWallet,
-} from "@/lib/pcc-distributor";
+import { getPccContractAddress } from "@/lib/pcc-distributor";
 
 export const runtime = "nodejs";
 
@@ -20,7 +15,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, walletAddress } = await req.json();
+    const body = await req.json();
+    const razorpay_order_id = typeof body?.razorpay_order_id === "string" ? body.razorpay_order_id : "";
+    const razorpay_payment_id = typeof body?.razorpay_payment_id === "string" ? body.razorpay_payment_id : "";
+    const razorpay_signature = typeof body?.razorpay_signature === "string" ? body.razorpay_signature : "";
+    const walletAddress = typeof body?.walletAddress === "string" ? body.walletAddress : "";
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return NextResponse.json(
+        { message: "razorpay_order_id, razorpay_payment_id and razorpay_signature are required" },
+        { status: 400 },
+      );
+    }
 
     if (!walletAddress) {
       return NextResponse.json({ message: "walletAddress is required" }, { status: 400 });
@@ -40,7 +46,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "Invalid signature sent" }, { status: 400 });
     }
 
-    const existingPurchase = await prisma.purchase.findUnique({
+    const existingPurchase = await prisma.purchase.findFirst({
       where: { razorpayOrderId: razorpay_order_id },
     });
 
@@ -52,9 +58,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "Payment already completed" });
     }
 
-    const pccAmount = existingPurchase.amount * INR_TO_PCC_RATE;
-
-    await prisma.purchase.update({
+    await prisma.purchase.updateMany({
       where: { razorpayOrderId: razorpay_order_id },
       data: {
         status: "PAYMENT_VERIFIED",
@@ -62,32 +66,11 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    if (isPccDistributorConfigured()) {
-      const txHash = await mintPccToWallet(walletAddress as `0x${string}`, pccAmount);
-
-      await prisma.purchase.update({
-        where: { razorpayOrderId: razorpay_order_id },
-        data: {
-          status: "COMPLETED",
-        },
-      });
-
-      return NextResponse.json({
-        message: "Payment verified and PCC minted successfully",
-        orderId: razorpay_order_id,
-        canClaim: false,
-        txHash,
-        contractAddress: getPccContractAddress() ?? null,
-      });
-    }
-
     return NextResponse.json({
       message: "Payment verified successfully",
       orderId: razorpay_order_id,
       canClaim: true,
       contractAddress: getPccContractAddress() ?? null,
-      warning:
-        "Auto mint not configured on server. Set PCC_DISTRIBUTOR_PRIVATE_KEY and SEPOLIA_RPC_URL to mint immediately after payment.",
     });
   } catch (error: any) {
     return NextResponse.json({ message: error?.message || "Internal Server Error" }, { status: 500 });

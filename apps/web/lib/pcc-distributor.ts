@@ -68,10 +68,27 @@ export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: n
 
   const endpoints = Array.from(new Set([...(rpcUrls.length > 0 ? rpcUrls : []), ...(rpcUrl ? [rpcUrl] : [])]));
   const amount = parseUnits(pccAmount.toFixed(6), 6);
+  console.log("[PCC_MINT] Mint request prepared", {
+    contractAddress,
+    distributorAddress: account.address,
+    recipientWalletAddress: walletAddress,
+    pccAmount,
+    amountBaseUnits: amount.toString(),
+    decimals: 6,
+    rpcEndpointsCount: endpoints.length,
+  });
+
   let lastError: unknown;
 
   for (const endpoint of endpoints) {
     try {
+      console.log("[PCC_MINT] Attempting endpoint", {
+        endpoint,
+        contractAddress,
+        recipientWalletAddress: walletAddress,
+        amountBaseUnits: amount.toString(),
+      });
+
       const transport = http(endpoint, {
         timeout: 20_000,
         retryCount: 2,
@@ -96,13 +113,30 @@ export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: n
         args: [walletAddress, amount],
       });
 
-      await publicClient.waitForTransactionReceipt({
+      console.log("[PCC_MINT] Mint transaction submitted", {
+        txHash,
+        endpoint,
+      });
+
+      const receipt = await publicClient.waitForTransactionReceipt({
         hash: txHash,
         timeout: 90_000,
       });
+
+      console.log("[PCC_MINT] Mint transaction confirmed", {
+        txHash,
+        blockNumber: receipt.blockNumber?.toString(),
+        status: receipt.status,
+        gasUsed: receipt.gasUsed?.toString(),
+      });
+
       return txHash;
     } catch (error) {
       lastError = error;
+      console.error("[PCC_MINT] Endpoint attempt failed", {
+        endpoint,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
