@@ -34,6 +34,8 @@ interface Milestone {
   dueDate?: string;
 }
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+
 export default function AgreementsPage() {
   const { data: session } = authClient.useSession();
   const [incomingAgreements, setIncomingAgreements] = useState<Agreement[]>([]);
@@ -63,8 +65,8 @@ export default function AgreementsPage() {
       console.log(`Fetching agreements for user: ${session.user.id}`);
 
       const [incomingRes, outgoingRes] = await Promise.all([
-        fetch(`http://localhost:5000/agreements/incoming?userId=${session.user.id}`),
-        fetch(`http://localhost:5000/agreements/outgoing?userId=${session.user.id}`),
+        fetch(`${API_BASE_URL}/agreements/incoming?userId=${session.user.id}`),
+        fetch(`${API_BASE_URL}/agreements/outgoing?userId=${session.user.id}`),
       ]);
 
       console.log(`Incoming response status: ${incomingRes.status}`);
@@ -87,7 +89,7 @@ export default function AgreementsPage() {
       }
     } catch (error) {
       console.error("Error fetching agreements:", error);
-      toast.error("Failed to fetch agreements - make sure the API server is running on http://localhost:5000");
+      toast.error(`Failed to fetch agreements - make sure the API server is running on ${API_BASE_URL}`);
     } finally {
       setIsLoading(false);
     }
@@ -112,7 +114,7 @@ export default function AgreementsPage() {
 
     try {
       setIsLoading(true);
-      const response = await fetch("http://localhost:5000/agreements", {
+      const response = await fetch(`${API_BASE_URL}/agreements`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -117,6 +117,8 @@ const generateWalletsForUser = (userId: string): DemoWallet[] => {
   ];
 };
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+
 // ─── Dashboard Component ───────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
