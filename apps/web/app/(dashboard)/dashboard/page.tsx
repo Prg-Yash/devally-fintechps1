@@ -254,9 +254,8 @@ export default function DashboardPage() {
             return (
               <Card
                 key={wallet.id}
-                className={`relative overflow-hidden transition-all duration-300 ${
-                  isConnected ? "border-primary ring-1 ring-primary/20" : "border-gray-200"
-                }`}
+                className={`relative overflow-hidden transition-all duration-300 ${isConnected ? "border-primary ring-1 ring-primary/20" : "border-gray-200"
+                  }`}
               >
                 {isConnected ? <div className="absolute left-0 top-0 h-1 w-full bg-primary" /> : null}
 

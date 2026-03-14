@@ -57,11 +57,11 @@ export default function AgreementsPage() {
       console.log('Session not ready, skipping fetch');
       return;
     }
-    
+
     try {
       setIsLoading(true);
       console.log(`Fetching agreements for user: ${session.user.id}`);
-      
+
       const [incomingRes, outgoingRes] = await Promise.all([
         fetch(`http://localhost:5000/agreements/incoming?userId=${session.user.id}`),
         fetch(`http://localhost:5000/agreements/outgoing?userId=${session.user.id}`),
