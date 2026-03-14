@@ -140,7 +140,7 @@ export default function DashboardPage() {
       try {
         setIsLoadingPurchases(true);
         const response = await fetch(
-          `http://localhost:5000/razorpay/purchases?userId=${encodeURIComponent(userId)}`,
+          `${API_BASE_URL}/razorpay/purchases?userId=${encodeURIComponent(userId)}`,
         );
 
         if (!response.ok) return;
@@ -148,7 +148,8 @@ export default function DashboardPage() {
         const data = await response.json();
         setPurchases(Array.isArray(data.purchases) ? data.purchases : []);
       } catch (error) {
-        console.error("Error fetching purchases:", error);
+        console.error("Purchase fetch network error:", error);
+        toast.error("API server is unreachable. Start backend on port 5000.");
       } finally {
         setIsLoadingPurchases(false);
       }
