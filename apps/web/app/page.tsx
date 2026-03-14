@@ -28,9 +28,14 @@ export default function Home() {
                   <h2 className="text-2xl font-semibold text-gray-900">Welcome back, {session.user.name}!</h2>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <Link href="/dashboard">
+                    <Button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
+                      Go to Dashboard
+                    </Button>
+                  </Link>
                   <Link href="/profile">
-                    <Button className="w-full sm:w-auto">
-                      Go to Profile
+                    <Button variant="outline" className="w-full sm:w-auto">
+                      My Profile
                     </Button>
                   </Link>
                   <Button variant="destructive" onClick={() => authClient.signOut()} className="w-full sm:w-auto">
