@@ -12,27 +12,87 @@ import {
   User,
   FileText,
   ShieldAlert,
+  Coins,
   LogOut,
   Activity,
   ChevronLeft,
   Menu,
 } from 'lucide-react'
-import { ConnectButton } from "thirdweb/react"
+import { ConnectButton, useActiveAccount } from "thirdweb/react"
 import { thirdwebClient } from "@/lib/thirdweb-client"
 import { sepolia } from "thirdweb/chains"
 import { AICoPilotPopup } from '@/components/AICoPilotPopup'
+import { formatPccBaseUnits, getPccBalance } from '@/lib/paycrow-coin'
+
+const API_BASE_URL = '/api'
 
 // ─── NAV ITEMS ───
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/profile',   label: 'Profile',   icon: User },
-  { href: '/agreements',label: 'Agreements',icon: FileText },
-  { href: '/tickets',   label: 'Tickets',   icon: ShieldAlert },
+  { href: '/profile', label: 'Profile', icon: User },
+  { href: '/agreements', label: 'Agreements', icon: FileText },
+  { href: '/buy-pcc', label: 'Buy PCC', icon: Coins },
+  { href: '/tickets', label: 'Tickets', icon: ShieldAlert },
 ]
 
 // ─── SIDEBAR COMPONENT (ARCHITECTURALLY ISOLATED) ───
 const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) => {
   const pathname = usePathname()
+  const activeAccount = useActiveAccount()
+  const [pccBalance, setPccBalance] = useState<string>('0')
+  const [isBalanceLoading, setIsBalanceLoading] = useState(false)
+  const [pccContractAddress, setPccContractAddress] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    const fetchPccConfig = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/razorpay/pcc-config`)
+        if (!response.ok) return
+        const data = await response.json()
+        if (data?.contractAddress) {
+          setPccContractAddress(data.contractAddress)
+        }
+      } catch (error) {
+        console.error('Failed to fetch PCC config:', error)
+      }
+    }
+
+    fetchPccConfig()
+  }, [])
+
+  useEffect(() => {
+    const walletAddress = activeAccount?.address
+    if (!walletAddress) {
+      setPccBalance('0')
+      return
+    }
+
+    const fetchBalance = async () => {
+      try {
+        setIsBalanceLoading(true)
+        const balance = await getPccBalance(thirdwebClient, walletAddress, pccContractAddress)
+        setPccBalance(formatPccBaseUnits(balance))
+      } catch (error) {
+        console.error('Failed to fetch PCC balance:', error)
+      } finally {
+        setIsBalanceLoading(false)
+      }
+    }
+
+    fetchBalance()
+
+    const interval = setInterval(fetchBalance, 15000)
+
+    const onPurchaseCompleted = () => {
+      fetchBalance()
+    }
+
+    window.addEventListener('pcc:purchase-completed', onPurchaseCompleted)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('pcc:purchase-completed', onPurchaseCompleted)
+    }
+  }, [activeAccount?.address, pccContractAddress])
 
   const handleSignOut = async () => {
     await authClient.signOut()
@@ -82,16 +142,16 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
                 >
                   {/* Solv Style Active Indicator */}
                   {active && (
-                    <motion.div 
+                    <motion.div
                       layoutId="sidebar-active-pill"
                       className="absolute left-1 top-3 bottom-3 w-1 bg-[#D9F24F] rounded-full shadow-[0_0_15px_rgba(217,242,79,0.6)]"
                     />
                   )}
-                  
+
                   <div className="w-10 flex justify-center shrink-0">
                     <Icon className={`w-5 h-5 transition-colors duration-300 ${active ? 'text-[#D9F24F]' : 'text-white/40 group-hover:text-white'}`} />
                   </div>
-                  
+
                   <AnimatePresence>
                     {!collapsed && (
                       <motion.span
@@ -113,12 +173,25 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
         </nav>
 
         <div className="px-4 py-8 border-t border-white/5 flex flex-col items-center">
+          <div className="w-full mb-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+            <div className="flex items-center justify-between text-xs text-white/60">
+              <span>PCC Balance</span>
+              <Coins className="w-3.5 h-3.5 text-[#D9F24F]" />
+            </div>
+            <p className="mt-1.5 text-lg font-bold text-white">
+              {isBalanceLoading ? 'Loading…' : `${pccBalance} PCC`}
+            </p>
+            {!activeAccount?.address && (
+              <p className="text-[11px] text-white/40 mt-1">Connect wallet to fetch balance</p>
+            )}
+          </div>
+
           <div className="w-full transition-all duration-500 ease-[0.22,1,0.36,1]">
             <ConnectButton
               client={thirdwebClient}
               chain={sepolia}
               accountAbstraction={{ chain: sepolia, sponsorGas: true }}
-              connectButton={{ 
+              connectButton={{
                 label: collapsed ? "..." : "Connect Node",
                 className: "nexus-connect-sidebar !bg-[#D9F24F] !text-[#1A2406] !font-bold !rounded-2xl !w-full !h-14 !text-sm !shadow-xl !shadow-[#D9F24F]/10 !transition-all hover:!scale-[1.02] active:!scale-95"
               }}
@@ -189,9 +262,9 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     <div className="flex min-h-screen bg-[#FAFAF9] font-sans selection:bg-[#D9F24F] selection:text-[#1A2406]">
       {/* Dynamic Glow Background */}
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_top_right,rgba(243,244,241,1)_0%,rgba(250,250,249,1)_100%)] pointer-events-none" />
-      
+
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
-      
+
       <div className="relative flex-1 flex flex-col min-h-screen overflow-hidden">
         {/* Mobile Header */}
         <div className="md:hidden flex items-center justify-between px-6 py-4 bg-[#1A2406] text-white">
@@ -209,7 +282,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         <main className="flex-1 p-6 md:p-10 lg:p-12 overflow-y-auto scrollbar-none scroll-smooth">
           {children}
         </main>
-        
+
         <AICoPilotPopup />
       </div>
     </div>
