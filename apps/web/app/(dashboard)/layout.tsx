@@ -17,6 +17,7 @@ import {
   Activity,
   ChevronLeft,
   Menu,
+  ArrowDownLeft,
 } from 'lucide-react'
 import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react"
 import { thirdwebClient } from "@/lib/thirdweb-client"
@@ -178,18 +179,37 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
         </nav>
 
         <div className="px-4 py-8 border-t border-white/5 flex flex-col items-center">
-          <div className="w-full mb-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-            <div className="flex items-center justify-between text-xs text-white/60">
-              <span>PCC Balance</span>
-              <Coins className="w-3.5 h-3.5 text-[#D9F24F]" />
+          <Link href="/withdraw" className="w-full mb-4">
+            <div className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 hover:bg-white/10 hover:border-[#D9F24F]/30 transition-all duration-300 cursor-pointer group">
+              <div className="flex items-center justify-between text-xs text-white/60">
+                <span>PCC Balance</span>
+                <div className="flex items-center gap-1.5">
+                  <ArrowDownLeft className="w-3 h-3 text-white/20 group-hover:text-[#D9F24F] transition-colors duration-300" />
+                  <Coins className="w-3.5 h-3.5 text-[#D9F24F]" />
+                </div>
+              </div>
+              <p className="mt-1.5 text-lg font-bold text-white">
+                {isBalanceLoading ? 'Loading…' : `${pccBalance} PCC`}
+              </p>
+              {!walletAddressForBalance && (
+                <p className="text-[11px] text-white/40 mt-1">Connect wallet to fetch balance</p>
+              )}
+              <AnimatePresence>
+                {!collapsed && (
+                  <motion.p
+                    key="withdraw-hint"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="text-[10px] text-[#D9F24F]/40 group-hover:text-[#D9F24F]/70 mt-1.5 font-bold tracking-widest uppercase transition-colors duration-300"
+                  >
+                    View Withdrawals →
+                  </motion.p>
+                )}
+              </AnimatePresence>
             </div>
-            <p className="mt-1.5 text-lg font-bold text-white">
-              {isBalanceLoading ? 'Loading…' : `${pccBalance} PCC`}
-            </p>
-            {!walletAddressForBalance && (
-              <p className="text-[11px] text-white/40 mt-1">Connect wallet to fetch balance</p>
-            )}
-          </div>
+          </Link>
 
           <div className="w-full transition-all duration-500 ease-[0.22,1,0.36,1]">
             <ConnectButton
