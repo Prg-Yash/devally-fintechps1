@@ -1,7 +1,7 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import AdminInfoModal from "@/app/components/admin-info-modal";
 import { formatAmount, formatDate } from "@/app/lib/admin-api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5000";
@@ -27,7 +27,6 @@ export default function PurchasesPage() {
   const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPurchase, setSelectedPurchase] = useState<PurchaseRow | null>(null);
 
   useEffect(() => {
     const loadPurchases = async () => {
@@ -54,7 +53,10 @@ export default function PurchasesPage() {
   }, []);
 
   const totalRevenue = useMemo(
-    () => purchases.filter((purchase) => purchase.status === "SUCCESS").reduce((sum, purchase) => sum + purchase.amount, 0),
+    () =>
+      purchases
+        .filter((purchase) => ["SUCCESS", "COMPLETED", "PAYMENT_VERIFIED"].includes(purchase.status))
+        .reduce((sum, purchase) => sum + purchase.amount, 0),
     [purchases],
   );
 
@@ -62,7 +64,7 @@ export default function PurchasesPage() {
     <section className="admin-page">
       <header className="admin-page-header">
         <h2>Payments</h2>
-        <p>Inspect all Razorpay purchase records and payment states. Click order ID to open complete info.</p>
+        <p>Inspect all Razorpay purchase records and open complete details on dedicated pages.</p>
       </header>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -72,7 +74,9 @@ export default function PurchasesPage() {
         </article>
         <article className="rounded-2xl border border-[#d9d0bf] bg-[#fffdf8] p-4">
           <h3 className="text-sm text-[#516157]">Successful</h3>
-          <strong className="text-2xl text-[#122016]">{purchases.filter((item) => item.status === "SUCCESS").length}</strong>
+          <strong className="text-2xl text-[#122016]">
+            {purchases.filter((item) => ["SUCCESS", "COMPLETED", "PAYMENT_VERIFIED"].includes(item.status)).length}
+          </strong>
         </article>
         <article className="rounded-2xl border border-[#d9d0bf] bg-[#fffdf8] p-4">
           <h3 className="text-sm text-[#516157]">Revenue</h3>
@@ -108,26 +112,26 @@ export default function PurchasesPage() {
                 <tr key={purchase.id}>
                   <td>
                     <div className="flex flex-col">
-                      <span className="font-medium">{purchase.user.name || 'Anonymous'}</span>
+                      <span className="font-medium">{purchase.user.name || "Anonymous"}</span>
                       <span className="text-[10px] text-[#526157]">{purchase.user.email}</span>
                     </div>
                   </td>
                   <td>₹{formatAmount(purchase.amount)}</td>
                   <td>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
-                      purchase.status === 'SUCCESS' ? 'bg-[#dff4e6] text-[#1f6a42] border-[#d9d0bf]' : 'bg-[#fde8c8] text-[#7b4c00] border-[#d9d0bf]'
-                    }`}>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+                        ["SUCCESS", "COMPLETED", "PAYMENT_VERIFIED"].includes(purchase.status)
+                          ? "bg-[#dff4e6] text-[#1f6a42] border-[#d9d0bf]"
+                          : "bg-[#fde8c8] text-[#7b4c00] border-[#d9d0bf]"
+                      }`}
+                    >
                       {purchase.status}
                     </span>
                   </td>
                   <td>
-                    <button
-                      type="button"
-                      className="border-0 bg-transparent p-0 font-semibold text-[#1d4c35] hover:underline"
-                      onClick={() => setSelectedPurchase(purchase)}
-                    >
+                    <Link href={`/purchases/${purchase.id}`} className="font-semibold text-[#1d4c35] hover:underline">
                       {purchase.razorpayOrderId}
-                    </button>
+                    </Link>
                   </td>
                   <td>{purchase.razorpayPaymentId ?? "-"}</td>
                   <td>{formatDate(purchase.createdAt)}</td>
@@ -137,63 +141,6 @@ export default function PurchasesPage() {
           </tbody>
         </table>
       </div>
-
-      <AdminInfoModal
-        open={Boolean(selectedPurchase)}
-        title={selectedPurchase ? `Order: ${selectedPurchase.razorpayOrderId}` : "Purchase Details"}
-        onClose={() => setSelectedPurchase(null)}
-      >
-        {selectedPurchase ? (
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-xl border border-[#d9d0bf] bg-[#fdfaf3] p-4 text-[#122016]">
-                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Transaction Info</h4>
-                <div className="space-y-2 text-sm">
-                  <p><strong className="text-[#122016]">System ID:</strong> <span className="text-[#526157] font-mono">{selectedPurchase.id}</span></p>
-                  <p><strong>Status:</strong> 
-                    <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      selectedPurchase.status === 'SUCCESS' ? 'bg-[#dff4e6] text-[#1f6a42]' : 
-                      selectedPurchase.status === 'PENDING' ? 'bg-[#fde8c8] text-[#7b4c00]' : 
-                      'bg-[#fde2e2] text-[#8f1f2f]'
-                    }`}>
-                      {selectedPurchase.status}
-                    </span>
-                  </p>
-                  <p><strong>Amount:</strong> <span className="font-bold text-[#122016]">₹{formatAmount(selectedPurchase.amount)}</span></p>
-                  <p><strong>Date:</strong> {formatDate(selectedPurchase.createdAt)}</p>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-[#d9d0bf] bg-[#fffbf6] p-4 text-[#122016]">
-                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Purchaser Details</h4>
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{selectedPurchase.user.name || 'Anonymous User'}</p>
-                  <p className="text-xs text-[#526157]">{selectedPurchase.user.email}</p>
-                  <p className="text-[10px] text-[#526157] font-mono mt-2">UID: {selectedPurchase.user.id}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-[#d9d0bf] bg-white p-4 text-[#122016]">
-              <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Razorpay Integration</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="p-3 rounded-lg border border-[#ece6d9] bg-[#fafaf8]">
-                  <p className="text-[10px] font-bold text-[#526157] uppercase">Razorpay Order ID</p>
-                  <p className="text-xs font-mono break-all">{selectedPurchase.razorpayOrderId}</p>
-                </div>
-                <div className="p-3 rounded-lg border border-[#ece6d9] bg-[#fafaf8]">
-                  <p className="text-[10px] font-bold text-[#526157] uppercase">Razorpay Payment ID</p>
-                  <p className="text-xs font-mono break-all">{selectedPurchase.razorpayPaymentId || "N/A"}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-dashed border-[#d9d0bf] bg-[#fafcf7] p-3 text-center">
-               <p className="text-xs text-[#526157] italic">This transaction was processed securely via Razorpay gateway.</p>
-            </div>
-          </div>
-        ) : null}
-      </AdminInfoModal>
     </section>
   );
 }
