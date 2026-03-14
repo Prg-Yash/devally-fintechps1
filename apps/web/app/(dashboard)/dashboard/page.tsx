@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Wallet, CheckCircle2, Coins } from "lucide-react";
+import { Wallet, CheckCircle2, Coins, FileText } from "lucide-react";
 import Link from "next/link";
 
 // Demo data for wallets
@@ -50,6 +50,12 @@ export default function DashboardPage() {
             <Button className="shrink-0 bg-blue-600 hover:bg-blue-700">
               <Coins className="w-4 h-4 mr-2" />
               Buy Stablecoins
+            </Button>
+          </Link>
+          <Link href="/agreements">
+            <Button variant="default" className="shrink-0 bg-purple-600 hover:bg-purple-700">
+              <FileText className="w-4 h-4 mr-2" />
+              Agreements
             </Button>
           </Link>
           <Button variant="outline" className="shrink-0 group">
