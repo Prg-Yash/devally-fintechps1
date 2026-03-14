@@ -27,6 +27,8 @@ model User {
 
   createdAgreements  Agreement[] @relation("Creator")
   receivedAgreements Agreement[] @relation("Receiver")
+  raisedTickets      Ticket[]    @relation("RaisedTickets")
+  ticketsAgainstMe   Ticket[]    @relation("TicketsAgainstUser")
 
   @@map("user")
 }
@@ -142,10 +144,37 @@ model Agreement {
   receiver   User   @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
   milestones Milestone[]
+  tickets    Ticket[]
 
   @@index([creatorId])
   @@index([receiverId])
   @@map("agreement")
+}
+
+model Ticket {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  reason      String
+  status      String   @default("OPEN")
+  evidenceUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  raisedById String
+  raisedBy   User   @relation("RaisedTickets", fields: [raisedById], references: [id], onDelete: Cascade)
+
+  againstUserId String
+  againstUser   User   @relation("TicketsAgainstUser", fields: [againstUserId], references: [id], onDelete: Cascade)
+
+  agreementId String?
+  agreement   Agreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+
+  @@index([raisedById])
+  @@index([againstUserId])
+  @@index([agreementId])
+  @@index([status])
+  @@map("ticket")
 }
 
 model Milestone {

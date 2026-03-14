@@ -16,6 +16,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { thirdwebClient } from "@/lib/thirdweb-client";
 import { ESCROW_CONTRACT_ADDRESS, getProjectsForClient, formatPusdAmount, shortAddress, type OnchainProject } from "@/lib/escrow";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+
 interface Purchase {
   id: string;
   amount: number;
@@ -128,17 +130,19 @@ export default function DashboardPage() {
       try {
         setIsLoadingPurchases(true);
         const response = await fetch(
-          `http://localhost:5000/razorpay/purchases?userId=${encodeURIComponent(userId)}`,
+          `${API_BASE_URL}/razorpay/purchases?userId=${encodeURIComponent(userId)}`,
         );
 
         if (!response.ok) {
+          toast.error("Unable to load purchase history right now");
           return;
         }
 
         const data = await response.json();
         setPurchases(Array.isArray(data.purchases) ? data.purchases : []);
       } catch (error) {
-        console.error("Error fetching purchases:", error);
+        console.error("Purchase fetch network error:", error);
+        toast.error("API server is unreachable. Start backend on port 5000.");
       } finally {
         setIsLoadingPurchases(false);
       }

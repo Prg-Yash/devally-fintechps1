@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import razorpayRoutes from './routes/razorpay.routes';
 import agreementRoutes from './routes/agreement.routes';
+import ticketRoutes from './routes/ticket.routes';
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ app.use(cors({
 // API Routes mounting
 app.use('/razorpay', razorpayRoutes);
 app.use('/agreements', agreementRoutes);
+app.use('/tickets', ticketRoutes);
 
 // General health check endpoint
 app.get('/health', (req, res) => {
