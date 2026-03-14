@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   User,
   FileText,
+  ShieldAlert,
   LogOut,
   Activity,
   ChevronLeft,
@@ -21,6 +22,7 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/profile',   label: 'Profile',   icon: User },
   { href: '/agreements',label: 'Agreements',icon: FileText },
+  { href: '/tickets',   label: 'Tickets',   icon: ShieldAlert },
 ]
 
 const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) => {
