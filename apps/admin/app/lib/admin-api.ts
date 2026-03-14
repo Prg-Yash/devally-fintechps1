@@ -1,4 +1,9 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5000";
+
+export interface AdminFetchResult<T> {
+  data: T | null;
+  error: string | null;
+}
 
 export async function fetchAdmin(path: string) {
   const res = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store" });
@@ -9,6 +14,16 @@ export async function fetchAdmin(path: string) {
   }
 
   return res.json();
+}
+
+export async function fetchAdminSafe<T>(path: string): Promise<AdminFetchResult<T>> {
+  try {
+    const data = (await fetchAdmin(path)) as T;
+    return { data, error: null };
+  } catch (error: any) {
+    const message = error?.message || "Unknown error while fetching admin data";
+    return { data: null, error: message };
+  }
 }
 
 export const formatDate = (value: string) =>

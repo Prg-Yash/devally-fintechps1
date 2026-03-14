@@ -18,15 +18,14 @@ app.use(
 );
 
 // Global JSON parsing generally goes here, but we excluded it because Webhooks need raw strings.
-// To add regular JSON parsing for other routes without breaking webhooks, you can do:
-// app.use((req, res, next) => {
-//   if (req.originalUrl === '/razorpay/webhook') {
-//     next(); // Skip JSON parsing
-//   } else {
-//     express.json()(req, res, next);
-//   }
-// });
-// Or just let individual route files specify their parsers (as done in razorpay.routes.ts)
+// Parse JSON for all routes except Razorpay webhook which needs raw request body.
+app.use((req, res, next) => {
+  if (req.originalUrl === '/razorpay/webhook') {
+    next();
+    return;
+  }
+  express.json()(req, res, next);
+});
 
 // API Routes mounting
 app.use('/razorpay', razorpayRoutes);

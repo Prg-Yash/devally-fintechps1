@@ -60,6 +60,8 @@ export const getAdminUsers = async (req: Request, res: Response) => {
         name: true,
         email: true,
         emailVerified: true,
+        isBanned: true,
+        bannedAt: true,
         twoFactorEnabled: true,
         createdAt: true,
         _count: {
@@ -77,6 +79,194 @@ export const getAdminUsers = async (req: Request, res: Response) => {
     return res.json({ count: users.length, users });
   } catch (error: any) {
     console.error('Error fetching admin users:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
+export const getAdminUserById = async (req: Request, res: Response) => {
+  try {
+    const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        sessions: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            createdAt: true,
+            expiresAt: true,
+            ipAddress: true,
+            userAgent: true,
+          },
+        },
+        accounts: {
+          select: {
+            id: true,
+            providerId: true,
+            createdAt: true,
+          },
+        },
+        purchases: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            amount: true,
+            status: true,
+            razorpayOrderId: true,
+            createdAt: true,
+          },
+        },
+        createdAgreements: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            amount: true,
+            createdAt: true,
+          },
+        },
+        receivedAgreements: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            amount: true,
+            createdAt: true,
+          },
+        },
+        raisedTickets: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            reason: true,
+            createdAt: true,
+          },
+        },
+        ticketsAgainstMe: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            reason: true,
+            createdAt: true,
+          },
+        },
+        passkeys: {
+          select: {
+            id: true,
+            name: true,
+            deviceType: true,
+            createdAt: true,
+          },
+        },
+        twofactors: {
+          select: {
+            id: true,
+            secret: true,
+          },
+        },
+        _count: {
+          select: {
+            sessions: true,
+            accounts: true,
+            purchases: true,
+            createdAgreements: true,
+            receivedAgreements: true,
+            raisedTickets: true,
+            ticketsAgainstMe: true,
+            passkeys: true,
+            twofactors: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.json({ user });
+  } catch (error: any) {
+    console.error('Error fetching admin user details:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
+export const banOrUnbanUser = async (req: Request, res: Response) => {
+  try {
+    const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+    const isBanned = req.body?.isBanned;
+
+    if (!userId || typeof isBanned !== 'boolean') {
+      return res.status(400).json({ error: 'userId and boolean isBanned are required' });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        isBanned,
+        bannedAt: isBanned ? new Date() : null,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        isBanned: true,
+        bannedAt: true,
+      },
+    });
+
+    return res.json({
+      message: isBanned ? 'User banned successfully' : 'User unbanned successfully',
+      user,
+    });
+  } catch (error: any) {
+    console.error('Error banning/unbanning user:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
+export const deleteUserByAdmin = async (req: Request, res: Response) => {
+  try {
+    const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await prisma.user.delete({ where: { id: userId } });
+
+    return res.json({
+      message: 'User deleted successfully',
+      deletedUser: existing,
+    });
+  } catch (error: any) {
+    console.error('Error deleting user:', error);
     return res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 };
