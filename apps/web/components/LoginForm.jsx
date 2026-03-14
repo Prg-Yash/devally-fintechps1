@@ -47,16 +47,23 @@ const LoginForm = () => {
     await authClient.signIn.email(
       { ...data, callbackURL: "/" },
       {
-        onError: (error) => {
-          if (error?.error?.code === "ACCOUNT_BANNED") {
+        onError: (ctx) => {
+          console.error("Login Context:", ctx)
+          const err = ctx.error
+          if (err) {
+            console.error("Login error details:", { code: err.code, message: err.message, status: err.status })
+          }
+          
+          if (err?.code === "ACCOUNT_BANNED") {
             toast.error("Your account is banned. Please contact admin support.")
             window.location.href = "/banned"
             setIsSubmitting(false)
             return
           }
-          toast.error(error.error.message || "Login failed")
-          console.error("Login error:", error)
-          setErrorCode(error.error.code)
+          
+          const errorMessage = err?.message || "Login failed"
+          toast.error(errorMessage)
+          setErrorCode(err?.code)
           setIsSubmitting(false)
         },
         onSuccess: async () => {

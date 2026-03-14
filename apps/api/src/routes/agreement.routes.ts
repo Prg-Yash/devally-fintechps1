@@ -6,12 +6,16 @@ import {
   getOutgoingAgreements,
   getAgreementById,
   updateAgreementStatus,
+  getAgreementByProjectId,
 } from '../controllers/agreement.controller';
 
 const router = Router();
 
 // Create a new agreement
 router.post('/', express.json(), createAgreement);
+
+// Search agreement by project ID
+router.get('/search', getAgreementByProjectId);
 
 // Get incoming agreements (where user is receiver)
 router.get('/incoming', getIncomingAgreements);

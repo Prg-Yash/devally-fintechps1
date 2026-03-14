@@ -39,9 +39,9 @@ const ResetPasswordForm = () => {
     await authClient.resetPassword(
       { newPassword: data.password, token },
       {
-        onError: (error) => {
-          toast.error(error.error.message || "Failed to reset password")
-          console.error("Reset password error:", error)
+        onError: (ctx) => {
+          console.error("Reset password error:", ctx)
+          toast.error(ctx.error?.message || "Failed to reset password")
         },
         onSuccess: () => {
           toast.success("Password reset successfully. Please log in with your new password.")

@@ -3,7 +3,18 @@ import prisma from '../config/prisma';
 
 export const createAgreement = async (req: Request, res: Response) => {
   try {
-    const { title, description, amount, currency, receiverEmail, creatorId, milestones } = req.body;
+    const { 
+      title, 
+      description, 
+      amount, 
+      currency, 
+      receiverEmail, 
+      creatorId, 
+      milestones,
+      projectId,
+      receiverAddress,
+      transactionHash
+    } = req.body;
 
     // Validate required fields
     if (!creatorId) {
@@ -60,6 +71,9 @@ export const createAgreement = async (req: Request, res: Response) => {
         currency: currency || 'USDC',
         creatorId,
         receiverId: receiver.id,
+        projectId: projectId ? Number(projectId) : null,
+        receiverAddress: receiverAddress || req.body.freelancerAddress,
+        transactionHash,
         milestones: {
           create: milestones?.map((milestone: any) => ({
             title: milestone.title,
@@ -70,8 +84,8 @@ export const createAgreement = async (req: Request, res: Response) => {
         },
       },
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        receiver: { select: { id: true, name: true, email: true } },
+        creator: { select: { name: true, email: true } },
+        receiver: { select: { name: true, email: true } },
         milestones: true,
       },
     });
@@ -97,8 +111,8 @@ export const getIncomingAgreements = async (req: Request, res: Response) => {
     const agreements = await prisma.agreement.findMany({
       where: { receiverId: userId },
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        receiver: { select: { id: true, name: true, email: true } },
+        creator: { select: { name: true, email: true } },
+        receiver: { select: { name: true, email: true } },
         milestones: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -126,8 +140,8 @@ export const getOutgoingAgreements = async (req: Request, res: Response) => {
     const agreements = await prisma.agreement.findMany({
       where: { creatorId: userId },
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        receiver: { select: { id: true, name: true, email: true } },
+        creator: { select: { name: true, email: true } },
+        receiver: { select: { name: true, email: true } },
         milestones: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -156,19 +170,14 @@ export const getAgreementById = async (req: Request, res: Response) => {
     const agreement = await prisma.agreement.findUnique({
       where: { id: agreementId },
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        receiver: { select: { id: true, name: true, email: true } },
+        creator: { select: { name: true, email: true } },
+        receiver: { select: { name: true, email: true } },
         milestones: true,
       },
     });
 
     if (!agreement) {
       return res.status(404).json({ error: 'Agreement not found' });
-    }
-
-    // Verify user is either creator or receiver
-    if (agreement.creatorId !== userId && agreement.receiverId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized to view this agreement' });
     }
 
     res.json({
@@ -208,8 +217,8 @@ export const updateAgreementStatus = async (req: Request, res: Response) => {
       where: { id: agreementId },
       data: { status },
       include: {
-        creator: { select: { id: true, name: true, email: true } },
-        receiver: { select: { id: true, name: true, email: true } },
+        creator: { select: { name: true, email: true } },
+        receiver: { select: { name: true, email: true } },
         milestones: true,
       },
     });
@@ -220,6 +229,36 @@ export const updateAgreementStatus = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error updating agreement:', error);
+    res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+export const getAgreementByProjectId = async (req: Request, res: Response) => {
+  try {
+    const projectId = req.query.projectId as string;
+
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    const agreement = await prisma.agreement.findUnique({
+      where: { projectId: Number(projectId) },
+      include: {
+        creator: { select: { name: true, email: true } },
+        receiver: { select: { name: true, email: true } },
+        milestones: true,
+      },
+    });
+
+    if (!agreement) {
+      return res.status(404).json({ error: 'Agreement not found for this project ID' });
+    }
+
+    res.json({
+      message: 'Agreement fetched successfully',
+      agreement,
+    });
+  } catch (error: any) {
+    console.error('Error searching agreement:', error);
     res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 };

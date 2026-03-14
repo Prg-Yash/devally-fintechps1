@@ -22,6 +22,7 @@ export type OnchainProject = {
   client: string;
   freelancer: string;
   amount: bigint;
+  releasedAmount: bigint;
   isFunded: boolean;
   isCompleted: boolean;
 };
@@ -57,9 +58,10 @@ export function scalePusdAmount(amount: string): bigint {
   return BigInt(safeWhole) * BigInt(10) ** BigInt(PUSD_DECIMALS) + BigInt(paddedFrac);
 }
 
-export function formatPusdAmount(amount: bigint) {
-  const whole = amount / BigInt(1_000_000);
-  const fraction = (amount % BigInt(1_000_000)).toString().padStart(6, "0").replace(/0+$/, "");
+export function formatPusdAmount(amount: bigint | number) {
+  const bAmount = BigInt(amount);
+  const whole = bAmount / BigInt(1_000_000);
+  const fraction = (bAmount % BigInt(1_000_000)).toString().padStart(6, "0").replace(/0+$/, "");
   return fraction ? `${whole.toString()}.${fraction}` : whole.toString();
 }
 
@@ -128,7 +130,7 @@ export async function getProjectById(client: ThirdwebClient, projectId: bigint):
       params: [projectId],
     });
 
-    const [clientAddress, freelancerAddress, totalAmount, _releasedAmount, isFunded, isCompleted] =
+    const [clientAddress, freelancerAddress, totalAmount, releasedAmount, isFunded, isCompleted] =
       agreementResult as [string, string, bigint, bigint, boolean, boolean];
 
     return {
@@ -136,6 +138,7 @@ export async function getProjectById(client: ThirdwebClient, projectId: bigint):
       client: clientAddress,
       freelancer: freelancerAddress,
       amount: totalAmount,
+      releasedAmount: releasedAmount,
       isFunded,
       isCompleted,
     };
@@ -159,7 +162,8 @@ export async function getProjectById(client: ThirdwebClient, projectId: bigint):
       projectId,
       client: clientAddress,
       freelancer: freelancerAddress,
-      amount,
+      amount: amount,
+      releasedAmount: BigInt(0),
       isFunded,
       isCompleted,
     };

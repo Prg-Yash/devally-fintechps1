@@ -41,4 +41,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
+app.get('/admin/test', (req, res) => {
+  res.json({ message: 'Admin test route works!' });
+});
+
 export default app;

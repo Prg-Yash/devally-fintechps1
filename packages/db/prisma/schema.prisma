@@ -14,12 +14,13 @@ model User {
   name          String
   email         String   @unique
   emailVerified Boolean  @default(false)
+  image         String?
+  phoneNumber   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
   isBanned      Boolean  @default(false)
   bannedAt      DateTime?
   banExpiresAt  DateTime?
-  image         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
 
   sessions         Session[]
   accounts         Account[]
@@ -140,6 +141,11 @@ model Agreement {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Protocol Sync Fields
+  projectId       Int?     @unique // On-chain project index
+  receiverAddress String?          // Target wallet address
+  transactionHash String?          // On-chain creation proof 
+
   creatorId String
   creator   User   @relation("Creator", fields: [creatorId], references: [id], onDelete: Cascade)
 
@@ -151,18 +157,20 @@ model Agreement {
 
   @@index([creatorId])
   @@index([receiverId])
+  @@index([projectId])
   @@map("agreement")
 }
 
 model Ticket {
-  id          String   @id @default(cuid())
+  id          String         @id @default(cuid())
   title       String
   description String
   reason      String
-  status      String   @default("OPEN")
+  status      String         @default("OPEN")
+  severity    TicketSeverity @default(LOW)
   evidenceUrl String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   raisedById String
   raisedBy   User   @relation("RaisedTickets", fields: [raisedById], references: [id], onDelete: Cascade)
@@ -177,7 +185,15 @@ model Ticket {
   @@index([againstUserId])
   @@index([agreementId])
   @@index([status])
+  @@index([severity])
   @@map("ticket")
+}
+
+enum TicketSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
 model Milestone {
@@ -187,6 +203,7 @@ model Milestone {
   amount        Float
   status        String   @default("PENDING")
   dueDate       DateTime?
+  order         Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
