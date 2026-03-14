@@ -101,37 +101,69 @@ export async function getPermitNonce(client: ThirdwebClient, ownerAddress: strin
 
 export async function getProjectCount(client: ThirdwebClient) {
   const escrowContract = getEscrowContract(client);
-  return readContract({
-    contract: escrowContract,
-    method: "function projectCount() view returns (uint256)",
-  });
+
+  // Support both contract variants used in this repo:
+  // - nextAgreementId()/agreements(uint256) (PayCrow.sol)
+  // - projectCount()/projects(uint256) (legacy)
+  try {
+    return await readContract({
+      contract: escrowContract,
+      method: "function nextAgreementId() view returns (uint256)",
+    });
+  } catch {
+    return readContract({
+      contract: escrowContract,
+      method: "function projectCount() view returns (uint256)",
+    });
+  }
 }
 
 export async function getProjectById(client: ThirdwebClient, projectId: bigint): Promise<OnchainProject> {
   const escrowContract = getEscrowContract(client);
-  const result = await readContract({
-    contract: escrowContract,
-    method:
-      "function projects(uint256) view returns (address client, address freelancer, uint256 amount, bool isFunded, bool isCompleted)",
-    params: [projectId],
-  });
+  try {
+    const agreementResult = await readContract({
+      contract: escrowContract,
+      method:
+        "function agreements(uint256) view returns (address client, address freelancer, uint256 totalAmount, uint256 releasedAmount, bool isFunded, bool isCompleted)",
+      params: [projectId],
+    });
 
-  const [clientAddress, freelancerAddress, amount, isFunded, isCompleted] = result as [
-    string,
-    string,
-    bigint,
-    boolean,
-    boolean,
-  ];
+    const [clientAddress, freelancerAddress, totalAmount, _releasedAmount, isFunded, isCompleted] =
+      agreementResult as [string, string, bigint, bigint, boolean, boolean];
 
-  return {
-    projectId,
-    client: clientAddress,
-    freelancer: freelancerAddress,
-    amount,
-    isFunded,
-    isCompleted,
-  };
+    return {
+      projectId,
+      client: clientAddress,
+      freelancer: freelancerAddress,
+      amount: totalAmount,
+      isFunded,
+      isCompleted,
+    };
+  } catch {
+    const projectResult = await readContract({
+      contract: escrowContract,
+      method:
+        "function projects(uint256) view returns (address client, address freelancer, uint256 amount, bool isFunded, bool isCompleted)",
+      params: [projectId],
+    });
+
+    const [clientAddress, freelancerAddress, amount, isFunded, isCompleted] = projectResult as [
+      string,
+      string,
+      bigint,
+      boolean,
+      boolean,
+    ];
+
+    return {
+      projectId,
+      client: clientAddress,
+      freelancer: freelancerAddress,
+      amount,
+      isFunded,
+      isCompleted,
+    };
+  }
 }
 
 export async function getProjectsForClient(
@@ -145,10 +177,27 @@ export async function getProjectsForClient(
   }
 
   const projects: OnchainProject[] = [];
+
+  // Iterate newest-first while being robust to both 0-based and 1-based IDs.
   for (let id = count; id > BigInt(0) && projects.length < maxItems; id--) {
-    const project = await getProjectById(client, id);
-    if (project.client.toLowerCase() === clientAddress.toLowerCase()) {
-      projects.push(project);
+    try {
+      const project = await getProjectById(client, id);
+      if (project.client.toLowerCase() === clientAddress.toLowerCase()) {
+        projects.push(project);
+      }
+    } catch {
+      // Ignore invalid IDs for the currently deployed contract shape.
+    }
+  }
+
+  if (projects.length < maxItems) {
+    try {
+      const zeroProject = await getProjectById(client, BigInt(0));
+      if (zeroProject.client.toLowerCase() === clientAddress.toLowerCase()) {
+        projects.push(zeroProject);
+      }
+    } catch {
+      // Contract might be 1-based or ID 0 may not exist.
     }
   }
 

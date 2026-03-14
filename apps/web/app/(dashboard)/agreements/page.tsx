@@ -47,7 +47,6 @@ import {
   getEscrowContract,
   getPusdContract,
   getPermitNonce,
-  getProjectCount,
   getProjectsForClient,
   scalePusdAmount,
   formatPusdAmount,
@@ -350,10 +349,11 @@ export default function AgreementsPage() {
       });
 
       // ── Step 3: Refresh & Done ─────────────────────────────────────
-      const projectCount = await getProjectCount(thirdwebClient);
       const projects = await getProjectsForClient(thirdwebClient, ownerAddress, 12);
       setFundedProjects(projects);
-      await saveAgreementMetadata(projectCount);
+      if (projects.length > 0) {
+        await saveAgreementMetadata(projects[0].projectId);
+      }
 
       setTxStep("verified");
       setTxStepDescription("Agreement created & funds locked in escrow ✓");
