@@ -35,7 +35,7 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from prompts import ANALYSE_PROMPT, SCORE_PROMPT, SCOUT_PROMPT, VISION_ANALYSE_PROMPT
+from .prompts import ANALYSE_PROMPT, SCORE_PROMPT, SCOUT_PROMPT, VISION_ANALYSE_PROMPT
 
 
 # ─────────────────────────────────────────────────────────────────────────────
