@@ -212,9 +212,16 @@ export const banOrUnbanUser = async (req: Request, res: Response) => {
   try {
     const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
     const isBanned = req.body?.isBanned;
+    const durationHours = req.body?.duration; // Optional duration in hours
 
     if (!userId || typeof isBanned !== 'boolean') {
       return res.status(400).json({ error: 'userId and boolean isBanned are required' });
+    }
+
+    let banExpiresAt: Date | null = null;
+    if (isBanned && durationHours && typeof durationHours === 'number' && durationHours > 0) {
+      banExpiresAt = new Date();
+      banExpiresAt.setHours(banExpiresAt.getHours() + durationHours);
     }
 
     const user = await prisma.user.update({
@@ -222,6 +229,7 @@ export const banOrUnbanUser = async (req: Request, res: Response) => {
       data: {
         isBanned,
         bannedAt: isBanned ? new Date() : null,
+        banExpiresAt,
       },
       select: {
         id: true,
@@ -229,11 +237,14 @@ export const banOrUnbanUser = async (req: Request, res: Response) => {
         email: true,
         isBanned: true,
         bannedAt: true,
+        banExpiresAt: true,
       },
     });
 
     return res.json({
-      message: isBanned ? 'User banned successfully' : 'User unbanned successfully',
+      message: isBanned 
+        ? `User banned successfully${durationHours ? ` for ${durationHours}h` : ' permanently'}` 
+        : 'User unbanned successfully',
       user,
     });
   } catch (error: any) {

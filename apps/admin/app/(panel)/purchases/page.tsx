@@ -13,7 +13,7 @@ interface PurchaseRow {
   razorpayOrderId: string;
   razorpayPaymentId: string | null;
   createdAt: string;
-  user: { email: string };
+  user: { id: string; name: string; email: string };
 }
 
 interface PurchasesResponse {
@@ -106,9 +106,20 @@ export default function PurchasesPage() {
             ) : (
               purchases.map((purchase) => (
                 <tr key={purchase.id}>
-                  <td>{purchase.user.email}</td>
-                  <td>{formatAmount(purchase.amount)}</td>
-                  <td>{purchase.status}</td>
+                  <td>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{purchase.user.name || 'Anonymous'}</span>
+                      <span className="text-[10px] text-[#526157]">{purchase.user.email}</span>
+                    </div>
+                  </td>
+                  <td>₹{formatAmount(purchase.amount)}</td>
+                  <td>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+                      purchase.status === 'SUCCESS' ? 'bg-[#dff4e6] text-[#1f6a42] border-[#d9d0bf]' : 'bg-[#fde8c8] text-[#7b4c00] border-[#d9d0bf]'
+                    }`}>
+                      {purchase.status}
+                    </span>
+                  </td>
                   <td>
                     <button
                       type="button"
@@ -129,28 +140,58 @@ export default function PurchasesPage() {
 
       <AdminInfoModal
         open={Boolean(selectedPurchase)}
-        title={selectedPurchase ? `Purchase: ${selectedPurchase.razorpayOrderId}` : "Purchase"}
+        title={selectedPurchase ? `Order: ${selectedPurchase.razorpayOrderId}` : "Purchase Details"}
         onClose={() => setSelectedPurchase(null)}
       >
         {selectedPurchase ? (
-          <>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <p><strong>ID:</strong> {selectedPurchase.id}</p>
-              <p><strong>Status:</strong> {selectedPurchase.status}</p>
-              <p><strong>User:</strong> {selectedPurchase.user.email}</p>
-              <p><strong>Amount:</strong> {formatAmount(selectedPurchase.amount)}</p>
-              <p><strong>Order ID:</strong> {selectedPurchase.razorpayOrderId}</p>
-              <p><strong>Payment ID:</strong> {selectedPurchase.razorpayPaymentId ?? "N/A"}</p>
-              <p><strong>Created:</strong> {formatDate(selectedPurchase.createdAt)}</p>
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-[#d9d0bf] bg-[#fdfaf3] p-4 text-[#122016]">
+                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Transaction Info</h4>
+                <div className="space-y-2 text-sm">
+                  <p><strong className="text-[#122016]">System ID:</strong> <span className="text-[#526157] font-mono">{selectedPurchase.id}</span></p>
+                  <p><strong>Status:</strong> 
+                    <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      selectedPurchase.status === 'SUCCESS' ? 'bg-[#dff4e6] text-[#1f6a42]' : 
+                      selectedPurchase.status === 'PENDING' ? 'bg-[#fde8c8] text-[#7b4c00]' : 
+                      'bg-[#fde2e2] text-[#8f1f2f]'
+                    }`}>
+                      {selectedPurchase.status}
+                    </span>
+                  </p>
+                  <p><strong>Amount:</strong> <span className="font-bold text-[#122016]">₹{formatAmount(selectedPurchase.amount)}</span></p>
+                  <p><strong>Date:</strong> {formatDate(selectedPurchase.createdAt)}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-[#d9d0bf] bg-[#fffbf6] p-4 text-[#122016]">
+                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Purchaser Details</h4>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">{selectedPurchase.user.name || 'Anonymous User'}</p>
+                  <p className="text-xs text-[#526157]">{selectedPurchase.user.email}</p>
+                  <p className="text-[10px] text-[#526157] font-mono mt-2">UID: {selectedPurchase.user.id}</p>
+                </div>
+              </div>
             </div>
 
-            <details className="rounded-xl border border-dashed border-[#d9d0bf] bg-[#fcfaf5] p-3">
-              <summary className="cursor-pointer font-semibold">Raw Complete Data</summary>
-              <pre className="mt-3 max-h-[340px] overflow-auto whitespace-pre-wrap break-words text-xs">
-                {JSON.stringify(selectedPurchase, null, 2)}
-              </pre>
-            </details>
-          </>
+            <div className="rounded-xl border border-[#d9d0bf] bg-white p-4 text-[#122016]">
+              <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Razorpay Integration</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg border border-[#ece6d9] bg-[#fafaf8]">
+                  <p className="text-[10px] font-bold text-[#526157] uppercase">Razorpay Order ID</p>
+                  <p className="text-xs font-mono break-all">{selectedPurchase.razorpayOrderId}</p>
+                </div>
+                <div className="p-3 rounded-lg border border-[#ece6d9] bg-[#fafaf8]">
+                  <p className="text-[10px] font-bold text-[#526157] uppercase">Razorpay Payment ID</p>
+                  <p className="text-xs font-mono break-all">{selectedPurchase.razorpayPaymentId || "N/A"}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-dashed border-[#d9d0bf] bg-[#fafcf7] p-3 text-center">
+               <p className="text-xs text-[#526157] italic">This transaction was processed securely via Razorpay gateway.</p>
+            </div>
+          </div>
         ) : null}
       </AdminInfoModal>
     </section>

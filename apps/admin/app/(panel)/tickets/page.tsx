@@ -11,10 +11,11 @@ interface TicketRow {
   title: string;
   reason: string;
   status: string;
+  evidenceUrl?: string | null;
   createdAt: string;
-  raisedBy: { email: string };
-  againstUser: { email: string };
-  agreement?: { id: string; title: string } | null;
+  raisedBy: { id: string; name: string; email: string };
+  againstUser: { id: string; name: string; email: string };
+  agreement?: { id: string; title: string; status: string } | null;
 }
 
 interface TicketsResponse {
@@ -134,24 +135,83 @@ export default function TicketsPage() {
         onClose={() => setSelectedTicket(null)}
       >
         {selectedTicket ? (
-          <>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <p><strong>ID:</strong> {selectedTicket.id}</p>
-              <p><strong>Status:</strong> {selectedTicket.status}</p>
-              <p><strong>Reason:</strong> {selectedTicket.reason}</p>
-              <p><strong>Created:</strong> {formatDate(selectedTicket.createdAt)}</p>
-              <p><strong>Raised By:</strong> {selectedTicket.raisedBy.email}</p>
-              <p><strong>Against User:</strong> {selectedTicket.againstUser.email}</p>
-              <p className="md:col-span-2"><strong>Agreement:</strong> {selectedTicket.agreement ? `${selectedTicket.agreement.title} (${selectedTicket.agreement.id})` : "No linked agreement"}</p>
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-[#d9d0bf] bg-[#fefaf5] p-4 text-[#122016]">
+                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Ticket Information</h4>
+                <div className="space-y-2 text-sm">
+                  <p><strong className="text-[#122016]">ID:</strong> <span className="text-[#526157] font-mono">{selectedTicket.id}</span></p>
+                  <p><strong>Title:</strong> {selectedTicket.title}</p>
+                  <p><strong>Status:</strong> 
+                    <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      selectedTicket.status === 'OPEN' ? 'bg-[#fde8c8] text-[#7b4c00]' : 
+                      selectedTicket.status === 'IN_REVIEW' ? 'bg-[#ebf4f9] text-[#1f6a8f]' : 
+                      'bg-[#dff4e6] text-[#1f6a42]'
+                    }`}>
+                      {selectedTicket.status}
+                    </span>
+                  </p>
+                  <p><strong>Reason Category:</strong> <span className="text-[#8f1f2f] font-medium">{selectedTicket.reason}</span></p>
+                  <p><strong>Created:</strong> {formatDate(selectedTicket.createdAt)}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-[#d9d0bf] bg-[#fffbf9] p-4 text-[#122016]">
+                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Parties Involved</h4>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-[10px] font-bold text-[#1f6a42] uppercase">Raised By (Complainant)</p>
+                    <p className="text-sm font-medium">{selectedTicket.raisedBy.name || 'Anonymous'}</p>
+                    <p className="text-xs text-[#526157]">{selectedTicket.raisedBy.email}</p>
+                  </div>
+                  <div className="pt-2 border-t border-[#ece6d9]">
+                    <p className="text-[10px] font-bold text-[#8f1f2f] uppercase">Against (Defendant)</p>
+                    <p className="text-sm font-medium">{selectedTicket.againstUser.name || 'Anonymous'}</p>
+                    <p className="text-xs text-[#526157]">{selectedTicket.againstUser.email}</p>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <details className="rounded-xl border border-dashed border-[#d9d0bf] bg-[#fcfaf5] p-3">
-              <summary className="cursor-pointer font-semibold">Raw Complete Data</summary>
-              <pre className="mt-3 max-h-[340px] overflow-auto whitespace-pre-wrap break-words text-xs">
-                {JSON.stringify(selectedTicket, null, 2)}
-              </pre>
-            </details>
-          </>
+            {selectedTicket.evidenceUrl && (
+              <div className="rounded-xl border border-[#d9d0bf] bg-[#ebf4f9] p-4 text-[#122016]">
+                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Evidence Submitted</h4>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm truncate mr-4">{selectedTicket.evidenceUrl}</p>
+                  <a 
+                    href={selectedTicket.evidenceUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="shrink-0 rounded-md border border-[#1f6a8f] bg-white px-3 py-1.5 text-xs font-bold text-[#1f6a8f] hover:bg-[#ebf4f9]"
+                  >
+                    View Evidence
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {selectedTicket.agreement && (
+              <div className="rounded-xl border border-[#d9d0bf] bg-[#f9fdf3] p-4 text-[#122016]">
+                <h4 className="text-xs font-bold uppercase text-[#526157] mb-3">Context: Linked Agreement</h4>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold">{selectedTicket.agreement.title}</p>
+                    <p className="text-[10px] text-[#526157] font-mono">{selectedTicket.agreement.id}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="px-2 py-1 rounded border border-[#d9d0bf] bg-white text-[10px] font-bold uppercase">
+                      {selectedTicket.agreement.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-[#d9d0bf] bg-white p-4 text-[#122016]">
+               <h4 className="text-xs font-bold uppercase text-[#526157] mb-2">Internal Note / Metadata</h4>
+               <p className="text-xs text-[#526157] italic">Automated dispute record for agreement conflict resolution.</p>
+            </div>
+          </div>
         ) : null}
       </AdminInfoModal>
     </section>

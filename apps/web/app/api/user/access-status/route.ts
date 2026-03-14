@@ -25,6 +25,7 @@ export async function GET() {
         id: true,
         isBanned: true,
         bannedAt: true,
+        banExpiresAt: true,
       },
     });
 
@@ -37,6 +38,19 @@ export async function GET() {
         },
         { status: 404 },
       );
+    }
+
+    // Timed Ban Logic
+    if (user.isBanned && user.banExpiresAt && new Date() > user.banExpiresAt) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          isBanned: false,
+          banExpiresAt: null,
+          bannedAt: null,
+        },
+      });
+      user.isBanned = false;
     }
 
     return NextResponse.json({
