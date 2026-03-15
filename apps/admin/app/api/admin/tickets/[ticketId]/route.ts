@@ -2,8 +2,8 @@
  * Dedicated route for PATCH /api/admin/tickets/[ticketId].
  * Proxies to Express and always returns JSON (no HTML error pages).
  */
-const API_TARGET = process.env.API_PROXY_TARGET ?? "http://localhost:5000";
-
+const API_TARGET = process.env.API_PROXY_TARGET ?? "http://localhost:5000"; 
+//this is so that in production, it can point to the actual API URL instead of localhost. Make sure to set API_PROXY_TARGET in your environment variables when deploying.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ ticketId: string }> }
