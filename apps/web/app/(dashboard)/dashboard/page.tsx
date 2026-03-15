@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { thirdwebClient } from "@/lib/thirdweb-client";
 import { ESCROW_CONTRACT_ADDRESS, getProjectsForClient, formatPusdAmount, shortAddress, type OnchainProject } from "@/lib/escrow";
+import { formatDisplayCurrency, useDisplayCurrencyPreference } from "@/lib/display-currency";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 interface Purchase {
@@ -135,6 +136,7 @@ export default function DashboardPage() {
   const [wallets, setWallets] = useState<DemoWallet[]>([]);
   const [fundedProjects, setFundedProjects] = useState<OnchainProject[]>([]);
   const [isLoadingFundedProjects, setIsLoadingFundedProjects] = useState(false);
+  const displayCurrency = useDisplayCurrencyPreference("INR");
 
   const name = session?.user?.name?.split(' ')[0] ?? "User";
   const email = session?.user?.email ?? "";
@@ -282,7 +284,7 @@ export default function DashboardPage() {
           </div>
           <div className="space-y-0 relative z-10">
             <p className="font-jakarta text-3xl font-bold tracking-[-0.04em] text-[#1A2406]">
-              <RollingCounter value={totals.purchased} decimals={2} prefix="₹" />
+              {formatDisplayCurrency(totals.purchased, displayCurrency)}
             </p>
             <p className="text-[10px] font-sans text-gray-400 font-bold uppercase tracking-tight">On-chain ledger balance</p>
           </div>
@@ -337,7 +339,7 @@ export default function DashboardPage() {
                               <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </p>
                           <Badge className="bg-[#D9F24F]/10 text-[#1A2406] border-none text-[8px] font-bold">
-                            {formatPusdAmount(project.amount)} PUSD
+                            {formatDisplayCurrency(Number(formatPusdAmount(project.amount).replace(/,/g, "")), displayCurrency)}
                           </Badge>
                         </div>
                         <p className="text-[9px] font-mono text-[#1A2406]/30 truncate">{shortAddress(project.freelancer)}</p>
@@ -426,9 +428,9 @@ export default function DashboardPage() {
                     <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-[0.15em]">Available Liquidity</p>
                     <div className="flex items-baseline gap-1.5">
                       <span className="font-jakarta text-2xl font-bold text-[#1A2406] tracking-[-0.02em]">
-                        <RollingCounter value={wallet.balance} decimals={2} prefix="₹" />
+                        {formatDisplayCurrency(wallet.balance, displayCurrency)}
                       </span>
-                      <span className="text-[10px] font-bold text-[#1A2406]/20 tracking-widest">{wallet.currency}</span>
+                      <span className="text-[10px] font-bold text-[#1A2406]/20 tracking-widest">{displayCurrency}</span>
                     </div>
                   </div>
 
@@ -480,7 +482,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="space-y-0.5">
                     <p className="font-jakarta font-bold text-[#1A2406] text-xl tracking-tight">
-                      <RollingCounter value={item.amount} decimals={2} prefix="₹" />
+                      {formatDisplayCurrency(item.amount, displayCurrency)}
                     </p>
                     <div className="flex items-center gap-3 text-[9px] font-bold tracking-widest uppercase text-[#1A2406]/20">
                       <span className="font-mono">{item.razorpayOrderId ? `TXN_${item.razorpayOrderId.slice(-10)}` : `REF_${item.id.slice(-10)}`}</span>

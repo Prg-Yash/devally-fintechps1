@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
-import { TicketSeverity } from '@prisma/client';
 import prisma from '../config/prisma';
 import { notifyUser } from '../config/notification-service';
+import {
+  getEscrowAgreementOnchain,
+  isEscrowAdminConfigured,
+  releaseEscrowFundsAsAdmin,
+} from '../config/escrow-admin';
 
 const DEFAULT_LIMIT = 100;
 const ALLOWED_TICKET_STATUSES = ['OPEN', 'IN_REVIEW', 'RESOLVED', 'CLOSED', 'REJECTED'] as const;
@@ -16,6 +20,15 @@ const getLimit = (value: unknown) => {
     return DEFAULT_LIMIT;
   }
   return Math.min(parsed, 500);
+};
+
+const formatPusdFromBaseUnits = (amountBaseUnits: bigint) => {
+  const whole = amountBaseUnits / BigInt(1_000_000);
+  const fraction = (amountBaseUnits % BigInt(1_000_000))
+    .toString()
+    .padStart(6, '0')
+    .replace(/0+$/, '');
+  return fraction ? `${whole.toString()}.${fraction}` : whole.toString();
 };
 
 export const getAdminAnalytics = async (_req: Request, res: Response) => {
@@ -370,7 +383,16 @@ export const getAdminTickets = async (req: Request, res: Response) => {
       include: {
         raisedBy: { select: { id: true, name: true, email: true } },
         againstUser: { select: { id: true, name: true, email: true } },
-        agreement: { select: { id: true, title: true, status: true } },
+        agreement: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            projectId: true,
+            creatorId: true,
+            receiverId: true,
+          },
+        },
       },
     });
 
@@ -394,7 +416,18 @@ export const getAdminTicketById = async (req: Request, res: Response) => {
       include: {
         raisedBy: { select: { id: true, name: true, email: true } },
         againstUser: { select: { id: true, name: true, email: true } },
-        agreement: { select: { id: true, title: true, status: true } },
+        agreement: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            projectId: true,
+            creatorId: true,
+            receiverId: true,
+            receiverAddress: true,
+            currency: true,
+          },
+        },
       },
     });
 
@@ -472,7 +505,16 @@ export const updateAdminTicket = async (req: Request, res: Response) => {
         updatedAt: true,
         raisedBy: { select: { id: true, name: true, email: true } },
         againstUser: { select: { id: true, name: true, email: true } },
-        agreement: { select: { id: true, title: true, status: true } },
+        agreement: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            projectId: true,
+            creatorId: true,
+            receiverId: true,
+          },
+        },
       },
     });
 
@@ -497,6 +539,170 @@ export const updateAdminTicket = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error updating admin ticket:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
+export const releaseAdminTicketFunds = async (req: Request, res: Response) => {
+  try {
+    const ticketId = Array.isArray(req.params.ticketId) ? req.params.ticketId[0] : req.params.ticketId;
+    const selectedUserId = String(req.body?.selectedUserId || '').trim();
+
+    if (!ticketId) {
+      return res.status(400).json({ error: 'ticketId is required' });
+    }
+
+    if (!selectedUserId) {
+      return res.status(400).json({ error: 'selectedUserId is required' });
+    }
+
+    if (!isEscrowAdminConfigured()) {
+      return res.status(500).json({
+        error:
+          'Escrow admin signer is not configured. Set ESCROW_ADMIN_PRIVATE_KEY, ESCROW_CONTRACT_ADDRESS, and SEPOLIA_RPC_URL.',
+      });
+    }
+
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        raisedBy: { select: { id: true, name: true, email: true } },
+        againstUser: { select: { id: true, name: true, email: true } },
+        agreement: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            currency: true,
+            projectId: true,
+            creatorId: true,
+            receiverId: true,
+            receiverAddress: true,
+          },
+        },
+      },
+    });
+
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    if (!ticket.agreement) {
+      return res.status(409).json({ error: 'Ticket is not linked to any agreement escrow' });
+    }
+
+    if (ticket.agreement.projectId == null) {
+      return res.status(409).json({ error: 'Agreement is not linked to an on-chain escrow project yet' });
+    }
+
+    const selectedUser = [ticket.raisedBy, ticket.againstUser].find((user) => user.id === selectedUserId);
+    if (!selectedUser) {
+      return res.status(400).json({
+        error: 'selectedUserId must be one of the ticket participants',
+      });
+    }
+
+    if (selectedUserId !== ticket.agreement.creatorId && selectedUserId !== ticket.agreement.receiverId) {
+      return res.status(409).json({
+        error: 'Selected user is not mapped as a participant on the linked agreement',
+      });
+    }
+
+    const onchainAgreement = await getEscrowAgreementOnchain(BigInt(ticket.agreement.projectId));
+
+    if (!onchainAgreement.isFunded) {
+      return res.status(409).json({ error: 'Escrow is not funded on-chain yet' });
+    }
+
+    const remainingAmount = onchainAgreement.totalAmount - onchainAgreement.releasedAmount;
+    if (remainingAmount <= BigInt(0) || onchainAgreement.isCompleted) {
+      return res.status(409).json({ error: 'Escrow has no releasable funds left' });
+    }
+
+    const recipientRole = selectedUserId === ticket.agreement.creatorId ? 'CREATOR' : 'RECEIVER';
+    const recipientAddress =
+      recipientRole === 'CREATOR' ? onchainAgreement.client : onchainAgreement.freelancer;
+
+    const txHash = await releaseEscrowFundsAsAdmin({
+      agreementId: BigInt(ticket.agreement.projectId),
+      amountBaseUnits: remainingAmount,
+      recipientAddress,
+    });
+
+    const [updatedAgreement, updatedTicket] = await prisma.$transaction([
+      prisma.agreement.update({
+        where: { id: ticket.agreement.id },
+        data: { status: 'COMPLETED' },
+        select: { id: true, status: true },
+      }),
+      prisma.ticket.update({
+        where: { id: ticket.id },
+        data: { status: 'RESOLVED' },
+        select: {
+          id: true,
+          title: true,
+          reason: true,
+          status: true,
+          severity: true,
+          evidenceUrl: true,
+          createdAt: true,
+          updatedAt: true,
+          raisedBy: { select: { id: true, name: true, email: true } },
+          againstUser: { select: { id: true, name: true, email: true } },
+          agreement: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              projectId: true,
+              creatorId: true,
+              receiverId: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const amountPusd = formatPusdFromBaseUnits(remainingAmount);
+    const notifyTargets = Array.from(new Set([updatedTicket.raisedBy.id, updatedTicket.againstUser.id]));
+
+    await Promise.all(
+      notifyTargets.map((targetUserId) =>
+        notifyUser({
+          userId: targetUserId,
+          title: 'Escrow released by admin',
+          message: `Ticket "${updatedTicket.title}" resolved. ${amountPusd} ${ticket.agreement?.currency || 'PUSD'} released to ${selectedUser.email}.`,
+          type: 'TICKET',
+          entityType: 'ticket',
+          entityId: updatedTicket.id,
+          emailSubject: 'Devally: Escrow release for dispute ticket',
+        })
+      )
+    );
+
+    return res.json({
+      message: 'Escrow funds released successfully',
+      ticket: updatedTicket,
+      release: {
+        txHash,
+        projectId: ticket.agreement.projectId,
+        agreementId: updatedAgreement.id,
+        amountBaseUnits: remainingAmount.toString(),
+        amountPusd,
+        recipient: {
+          id: selectedUser.id,
+          name: selectedUser.name,
+          email: selectedUser.email,
+          role: recipientRole,
+          walletAddress: recipientAddress,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('Error releasing escrow funds for admin ticket:', error);
     return res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 };

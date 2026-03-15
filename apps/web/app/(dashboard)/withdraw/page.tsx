@@ -9,15 +9,19 @@ import {
   Coins,
   ExternalLink,
   Loader2,
+  MinusCircle,
+  PlusCircle,
   Search,
-  Wallet,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
-import { useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
-import { thirdwebClient } from "@/lib/thirdweb-client";
-import { formatPccBaseUnits, getPccBalance } from "@/lib/paycrow-coin";
+import {
+  convertInrToCurrency,
+  convertCurrencyToInr,
+  formatDisplayCurrency,
+  useDisplayCurrencyPreference,
+} from "@/lib/display-currency";
 
 const API_BASE_URL = "/api";
 const SEPOLIA_TX_BASE_URL = "https://sepolia.etherscan.io/tx/";
@@ -28,7 +32,12 @@ type WithdrawalEntry = {
   id: string;
   userId: string;
   walletAddress: string;
+  fromAddress?: string;
+  burnAddress?: string;
+  toWalletAddress?: string;
+  toUserAccount?: string;
   amountPcc: number;
+  amountInr?: number;
   amountBaseUnits: string;
   txHash: string | null;
   status: WithdrawStatus | string;
@@ -39,7 +48,13 @@ type WithdrawalEntry = {
 
 type WithdrawalSummary = {
   claimablePcc: number;
+  claimableInr: number;
   totalWithdrawnPcc: number;
+  totalWithdrawnInr: number;
+  averageWithdrawalInr: number;
+  largestWithdrawalInr: number;
+  thisMonthWithdrawnInr: number;
+  thisMonthWithdrawalCount: number;
   conversionRate: number;
   completedCount: number;
   pendingCount: number;
@@ -48,7 +63,13 @@ type WithdrawalSummary = {
 
 const EMPTY_SUMMARY: WithdrawalSummary = {
   claimablePcc: 0,
+  claimableInr: 0,
   totalWithdrawnPcc: 0,
+  totalWithdrawnInr: 0,
+  averageWithdrawalInr: 0,
+  largestWithdrawalInr: 0,
+  thisMonthWithdrawnInr: 0,
+  thisMonthWithdrawalCount: 0,
   conversionRate: 1,
   completedCount: 0,
   pendingCount: 0,
@@ -69,8 +90,10 @@ const reveal = {
   },
 };
 
-function formatPcc(value: number) {
-  return value.toLocaleString("en-IN", {
+function formatPcc(value: unknown) {
+  const numeric = Number(value ?? 0);
+  const safeValue = Number.isFinite(numeric) ? numeric : 0;
+  return safeValue.toLocaleString("en-IN", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 6,
   });
@@ -114,31 +137,45 @@ const STATUS_STYLE: Record<
 
 export default function WithdrawPage() {
   const { data: session } = authClient.useSession();
-  const activeAccount = useActiveAccount();
-  const activeWallet = useActiveWallet();
-  const adminWallet = useAdminWallet();
-
-  const adminAccount = activeWallet?.getAdminAccount?.() || adminWallet?.getAccount?.();
-  const connectedWalletAddress = adminAccount?.address || activeAccount?.address || "";
+  const currency = useDisplayCurrencyPreference("INR");
 
   const [withdrawals, setWithdrawals] = useState<WithdrawalEntry[]>([]);
   const [summary, setSummary] = useState<WithdrawalSummary>(EMPTY_SUMMARY);
-  const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [walletBalance, setWalletBalance] = useState("0");
+  const [withdrawAmountInput, setWithdrawAmountInput] = useState("");
+  const [withdrawMode, setWithdrawMode] = useState<"token" | "money">("money");
+  const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
 
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | WithdrawStatus>("all");
 
-  const parsedWithdrawAmount = Number(withdrawAmount);
-  const canWithdraw =
-    Boolean(connectedWalletAddress) &&
-    summary.claimablePcc > 0 &&
-    Number.isFinite(parsedWithdrawAmount) &&
-    Math.abs(parsedWithdrawAmount - summary.claimablePcc) <= 0.000001;
+  const canWithdraw = summary.claimablePcc > 0;
+
+  const claimableInr = summary.claimableInr || summary.claimablePcc;
+  const totalWithdrawnInr = summary.totalWithdrawnInr || summary.totalWithdrawnPcc;
+
+  const parsedWithdrawInput = Number(withdrawAmountInput);
+  const normalizedInput = Number.isFinite(parsedWithdrawInput) ? parsedWithdrawInput : 0;
+
+  const requestedInr = useMemo(() => {
+    if (!Number.isFinite(normalizedInput) || normalizedInput <= 0) {
+      return 0;
+    }
+    if (withdrawMode === "token") {
+      const rate = summary.conversionRate > 0 ? summary.conversionRate : 1;
+      return normalizedInput / rate;
+    }
+    return convertCurrencyToInr(normalizedInput, currency);
+  }, [normalizedInput, withdrawMode, summary.conversionRate, currency]);
+
+  const requestedPcc = useMemo(() => {
+    const rate = summary.conversionRate > 0 ? summary.conversionRate : 1;
+    return requestedInr * rate;
+  }, [requestedInr, summary.conversionRate]);
+
+  const canSubmitWithdraw = canWithdraw && requestedPcc > 0 && requestedPcc <= summary.claimablePcc;
 
   const filteredWithdrawals = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -170,12 +207,23 @@ export default function WithdrawPage() {
       };
 
       if (!response.ok) {
+        if ((data as any)?.code === "DB_CLIENT_OUTDATED") {
+          throw new Error(
+            "Withdraw backend Prisma client is outdated. Run `npx prisma generate` in packages/db and restart apps/web.",
+          );
+        }
         throw new Error(data.error || "Failed to load withdrawal history");
       }
 
       const nextSummary: WithdrawalSummary = {
         claimablePcc: Number(data.summary?.claimablePcc ?? 0),
+        claimableInr: Number(data.summary?.claimableInr ?? data.summary?.claimablePcc ?? 0),
         totalWithdrawnPcc: Number(data.summary?.totalWithdrawnPcc ?? 0),
+        totalWithdrawnInr: Number(data.summary?.totalWithdrawnInr ?? data.summary?.totalWithdrawnPcc ?? 0),
+        averageWithdrawalInr: Number(data.summary?.averageWithdrawalInr ?? 0),
+        largestWithdrawalInr: Number(data.summary?.largestWithdrawalInr ?? 0),
+        thisMonthWithdrawnInr: Number(data.summary?.thisMonthWithdrawnInr ?? 0),
+        thisMonthWithdrawalCount: Number(data.summary?.thisMonthWithdrawalCount ?? 0),
         conversionRate: Number(data.summary?.conversionRate ?? 1),
         completedCount: Number(data.summary?.completedCount ?? 0),
         pendingCount: Number(data.summary?.pendingCount ?? 0),
@@ -184,7 +232,7 @@ export default function WithdrawPage() {
 
       setWithdrawals(Array.isArray(data.withdrawals) ? data.withdrawals : []);
       setSummary(nextSummary);
-      setWithdrawAmount(nextSummary.claimablePcc > 0 ? normalizePccInput(nextSummary.claimablePcc) : "");
+      setWithdrawAmountInput(nextSummary.claimablePcc > 0 ? normalizePccInput(nextSummary.claimablePcc) : "");
     } catch (error: any) {
       toast.error(error?.message || "Failed to load withdrawals");
     } finally {
@@ -192,30 +240,9 @@ export default function WithdrawPage() {
     }
   };
 
-  const loadWalletBalance = async () => {
-    if (!connectedWalletAddress) {
-      setWalletBalance("0");
-      return;
-    }
-
-    try {
-      setIsLoadingBalance(true);
-      const balance = await getPccBalance(thirdwebClient, connectedWalletAddress);
-      setWalletBalance(formatPccBaseUnits(balance));
-    } catch (error) {
-      console.error("Failed to load wallet balance", error);
-    } finally {
-      setIsLoadingBalance(false);
-    }
-  };
-
   useEffect(() => {
     loadHistory();
   }, [session?.user?.id]);
-
-  useEffect(() => {
-    loadWalletBalance();
-  }, [connectedWalletAddress]);
 
   const handleWithdraw = async () => {
     if (!session?.user?.id) {
@@ -223,25 +250,25 @@ export default function WithdrawPage() {
       return;
     }
 
-    if (!connectedWalletAddress) {
-      toast.error("Connect your wallet before withdrawing.");
+    if (summary.claimablePcc <= 0) {
+      toast.error("No claimable PCC balance available for withdrawal.");
       return;
     }
 
-    if (!canWithdraw) {
-      toast.error(`Enter exact claimable amount: ${formatPcc(summary.claimablePcc)} PCC`);
+    if (!canSubmitWithdraw) {
+      toast.error("Enter a valid amount within your claimable balance.");
       return;
     }
 
     try {
       setIsWithdrawing(true);
+      const requestAmount = Number(requestedPcc.toFixed(6));
 
       const response = await fetch(`${API_BASE_URL}/withdrawals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          walletAddress: connectedWalletAddress,
-          amountPcc: parsedWithdrawAmount,
+          amountPcc: requestAmount,
         }),
       });
 
@@ -262,7 +289,8 @@ export default function WithdrawPage() {
       }
 
       window.dispatchEvent(new CustomEvent("pcc:purchase-completed"));
-      await Promise.all([loadHistory(), loadWalletBalance()]);
+      await loadHistory();
+      setIsWithdrawModalOpen(false);
     } catch (error: any) {
       toast.error(error?.message || "Withdrawal failed");
     } finally {
@@ -290,37 +318,39 @@ export default function WithdrawPage() {
             <span className="font-bold">History</span>
           </h1>
           <p className="font-sans text-[#1A2406]/30 text-sm font-medium">
-            Withdraw verified PCC to your connected wallet and track every payout.
+            Simulate token burn, INR settlement, and track every withdrawal leg.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={handleWithdraw}
+          onClick={() => setIsWithdrawModalOpen(true)}
           disabled={!canWithdraw || isWithdrawing}
           className="rounded-xl bg-[#1A2406] text-white px-5 py-2.5 text-xs font-bold tracking-tight flex items-center gap-2 shadow-lg shadow-[#1A2406]/10 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isWithdrawing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowDownLeft className="w-4 h-4" />}
-          {isWithdrawing ? "Processing..." : "Withdraw to Connected Wallet"}
+          {isWithdrawing ? "Processing..." : "Withdraw Funds"}
         </button>
       </motion.div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
-          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Claimable PCC</p>
-          <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatPcc(summary.claimablePcc)}</p>
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Claimable (INR Base)</p>
+          <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatDisplayCurrency(claimableInr, currency)}</p>
+          <p className="text-[11px] text-[#1A2406]/45 mt-1">INR base: ₹{formatPcc(claimableInr)}</p>
         </motion.div>
 
         <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-[#1A2406] text-white border border-white/5 shadow-[0_12px_30px_rgba(26,36,6,0.18)]">
-          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-white/40 mb-2">Wallet PCC Balance</p>
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-white/40 mb-2">Claimable Stablecoins</p>
           <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#D9F24F]">
-            {isLoadingBalance ? "Loading" : formatPcc(Number(walletBalance || "0"))}
+            {formatPcc(summary.claimablePcc)} PCC
           </p>
         </motion.div>
 
         <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
-          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Total Withdrawn</p>
-          <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatPcc(summary.totalWithdrawnPcc)}</p>
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Total Withdrawn (INR Base)</p>
+          <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatDisplayCurrency(totalWithdrawnInr, currency)}</p>
+          <p className="text-[11px] text-[#1A2406]/45 mt-1">INR base: ₹{formatPcc(totalWithdrawnInr)}</p>
         </motion.div>
 
         <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
@@ -329,44 +359,52 @@ export default function WithdrawPage() {
         </motion.div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Average Withdrawal</p>
+          <p className="font-jakarta text-xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatDisplayCurrency(summary.averageWithdrawalInr, currency)}</p>
+        </motion.div>
+        <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Largest Withdrawal</p>
+          <p className="font-jakarta text-xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatDisplayCurrency(summary.largestWithdrawalInr, currency)}</p>
+        </motion.div>
+        <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">This Month</p>
+          <p className="font-jakarta text-xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatDisplayCurrency(summary.thisMonthWithdrawnInr, currency)}</p>
+          <p className="text-[11px] text-[#1A2406]/45 mt-1">{summary.thisMonthWithdrawalCount} withdrawals</p>
+        </motion.div>
+      </div>
+
       <motion.div variants={reveal} className="rounded-2xl border border-[#e5ddce] bg-white p-5 shadow-sm space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <p className="text-xs font-bold tracking-[0.16em] uppercase text-[#1A2406]/40">Withdraw Setup</p>
-            <p className="text-sm text-[#1A2406]/60 mt-1">Withdrawals currently process the full claimable PCC balance per request.</p>
+            <p className="text-sm text-[#1A2406]/60 mt-1">Withdrawals burn stablecoins and settle equivalent money in simulation.</p>
           </div>
           <button
             type="button"
-            onClick={() => setWithdrawAmount(normalizePccInput(summary.claimablePcc))}
+            onClick={() => {
+              const inrMax = summary.claimableInr || summary.claimablePcc;
+              const moneyMax = convertInrToCurrency(inrMax, currency);
+              setWithdrawAmountInput(normalizePccInput(withdrawMode === "token" ? summary.claimablePcc : moneyMax));
+            }}
             className="rounded-lg border border-[#d9d0bf] px-3 py-1.5 text-xs font-semibold text-[#1A2406]"
           >
             Use Max
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="block">
-            <span className="text-xs font-semibold text-[#1A2406]/60">Amount (PCC)</span>
-            <input
-              value={withdrawAmount}
-              onChange={(event) => setWithdrawAmount(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-[#d9d0bf] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#D9F24F]/40"
-              placeholder="0"
-              inputMode="decimal"
-            />
-          </label>
-
-          <div className="rounded-xl border border-[#d9d0bf] bg-[#fcfbf8] px-3 py-2.5">
-            <p className="text-[11px] uppercase tracking-wider font-semibold text-[#1A2406]/40">Destination Wallet</p>
-            <p className="mt-2 flex items-center gap-2 text-sm font-semibold text-[#1A2406] break-all">
-              <Wallet className="w-4 h-4 text-[#1A2406]/40" />
-              {connectedWalletAddress || "Connect wallet to enable withdraw"}
-            </p>
-          </div>
+        <div className="rounded-xl border border-[#d9d0bf] bg-[#fcfbf8] px-3 py-2.5">
+          <p className="text-[11px] uppercase tracking-wider font-semibold text-[#1A2406]/40">Settlement Route</p>
+          <p className="mt-2 text-sm font-semibold text-[#1A2406] break-all">
+            Stablecoin Burn Simulation {"->"} Fiat Settlement Simulation
+          </p>
         </div>
 
-        {!canWithdraw && summary.claimablePcc > 0 ? (
-          <p className="text-xs text-[#8f1f2f]">Amount must equal full claimable balance: {formatPcc(summary.claimablePcc)} PCC.</p>
+        {summary.claimablePcc <= 0 ? (
+          <p className="text-xs text-[#1A2406]/45">
+            Withdraw is enabled only when claimable INR is greater than 0.
+          </p>
         ) : null}
       </motion.div>
 
@@ -380,7 +418,7 @@ export default function WithdrawPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by wallet or tx hash"
+                placeholder="Search by user or tx hash"
                 className="pl-9 pr-4 py-2.5 text-xs font-medium bg-white/60 border border-black/[0.04] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D9F24F]/40 w-56"
               />
             </div>
@@ -427,10 +465,22 @@ export default function WithdrawPage() {
                   <div className="space-y-1 min-w-0">
                     <p className="font-jakarta font-bold text-[#1A2406] text-base tracking-tight flex items-center gap-2 flex-wrap">
                       <Coins className="w-4 h-4 text-[#1A2406]/50" />
-                      {formatPcc(entry.amountPcc)} PCC
+                      {formatDisplayCurrency(entry.amountInr ?? entry.amountPcc, currency)}
+                    </p>
+                    <p className="text-[11px] text-[#1A2406]/40">
+                      {formatDisplayCurrency(entry.amountInr ?? entry.amountPcc, currency)}
                     </p>
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-[#1A2406]/35 break-all">
-                      Wallet: {shortAddress(entry.walletAddress)}
+                      From: {shortAddress(entry.fromAddress || "-")}
+                    </p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#1A2406]/35 break-all">
+                      Burn: {shortAddress(entry.burnAddress || "-")}
+                    </p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#1A2406]/35 break-all">
+                      Settlement: {shortAddress(entry.toWalletAddress || entry.walletAddress)}
+                    </p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#1A2406]/35 break-all">
+                      To User: {entry.toUserAccount || entry.userId}
                     </p>
                     <p className="text-[11px] text-[#1A2406]/35">
                       {new Date(entry.createdAt).toLocaleString("en-IN")}
@@ -464,6 +514,75 @@ export default function WithdrawPage() {
             : null}
         </div>
       </div>
+
+      {isWithdrawModalOpen ? (
+        <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-[1px] flex items-center justify-center px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-[#d9d0bf] bg-white p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-jakarta text-xl font-bold text-[#1A2406]">Withdraw Simulation</h3>
+              <button
+                type="button"
+                className="rounded-md border border-[#d9d0bf] px-2 py-1 text-xs font-semibold"
+                onClick={() => setIsWithdrawModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={`rounded-lg px-3 py-2 text-xs font-bold ${withdrawMode === "money" ? "bg-[#1A2406] text-white" : "bg-[#f6f3eb] text-[#1A2406]"}`}
+                onClick={() => setWithdrawMode("money")}
+              >
+                <PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Money ({currency})
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg px-3 py-2 text-xs font-bold ${withdrawMode === "token" ? "bg-[#1A2406] text-white" : "bg-[#f6f3eb] text-[#1A2406]"}`}
+                onClick={() => setWithdrawMode("token")}
+              >
+                <MinusCircle className="w-3.5 h-3.5 inline mr-1" /> Tokens (PCC)
+              </button>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-[#1A2406]/60 mb-2">
+                Enter amount in {withdrawMode === "token" ? "PCC" : currency}
+              </p>
+              <input
+                value={withdrawAmountInput}
+                onChange={(event) => setWithdrawAmountInput(event.target.value)}
+                className="w-full rounded-xl border border-[#d9d0bf] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#D9F24F]/40"
+                placeholder="0"
+                inputMode="decimal"
+              />
+            </div>
+
+            <div className="rounded-xl border border-[#d9d0bf] bg-[#fcfbf8] p-3 space-y-1.5 text-xs text-[#1A2406]/75">
+              <p>Requested burn: {formatPcc(requestedPcc)} PCC</p>
+              <p>Requested settlement: {formatDisplayCurrency(requestedInr, currency)}</p>
+              <p>INR base: ₹{formatPcc(requestedInr)}</p>
+              <p>Claimable burn: {formatPcc(summary.claimablePcc)} PCC</p>
+            </div>
+
+            {!canSubmitWithdraw ? (
+              <p className="text-xs text-[#8f1f2f]">
+                Enter a positive amount within available claimable balance.
+              </p>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleWithdraw}
+              disabled={!canSubmitWithdraw || isWithdrawing}
+              className="w-full rounded-xl bg-[#1A2406] text-white px-4 py-2.5 text-sm font-bold disabled:opacity-50"
+            >
+              {isWithdrawing ? "Processing..." : "Confirm Withdraw"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </motion.div>
   );
 }
