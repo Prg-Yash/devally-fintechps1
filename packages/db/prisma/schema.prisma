@@ -31,6 +31,8 @@ model User {
 
   createdAgreements  Agreement[] @relation("Creator")
   receivedAgreements Agreement[] @relation("Receiver")
+  agreementChangeRequests AgreementChangeRequest[]
+  notifications Notification[]
   raisedTickets      Ticket[]    @relation("RaisedTickets")
   ticketsAgainstMe   Ticket[]    @relation("TicketsAgainstUser")
 
@@ -132,13 +134,34 @@ model Purchase {
   @@map("purchase")
 }
 
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  message    String
+  type       String
+  entityType String?
+  entityId   String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, isRead])
+  @@map("notification")
+}
+
 model Agreement {
   id          String   @id @default(cuid())
   title       String
   description String?
   amount      Float
-  status      String   @default("PENDING")
-  currency    String   @default("USDC")
+  status      String   @default("DRAFT")
+  currency    String   @default("PUSD")
+  dueDate     DateTime?
+  fundingError String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -146,6 +169,7 @@ model Agreement {
   projectId       Int?    @unique // On-chain project index
   receiverAddress String? // Target wallet address
   transactionHash String? // On-chain creation proof 
+  clientRefId     String? // Deterministic off-chain to on-chain ref
 
   creatorId String
   creator   User   @relation("Creator", fields: [creatorId], references: [id], onDelete: Cascade)
@@ -154,12 +178,29 @@ model Agreement {
   receiver   User   @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
   milestones Milestone[]
+  changeRequests AgreementChangeRequest[]
   tickets    Ticket[]
 
   @@index([creatorId])
   @@index([receiverId])
   @@index([projectId])
   @@map("agreement")
+}
+
+model AgreementChangeRequest {
+  id          String    @id @default(cuid())
+  note        String
+  createdAt   DateTime  @default(now())
+
+  agreementId String
+  agreement   Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  requestedById String
+  requestedBy   User     @relation(fields: [requestedById], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@index([requestedById])
+  @@map("agreement_change_request")
 }
 
 model Ticket {
@@ -203,6 +244,8 @@ model Milestone {
   description String?
   amount      Float
   status      String    @default("PENDING")
+  paidAt      DateTime?
+  payoutTxHash String?
   dueDate     DateTime?
   order       Int       @default(0)
   createdAt   DateTime  @default(now())

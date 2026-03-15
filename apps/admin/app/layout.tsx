@@ -23,8 +23,8 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Nexus Admin Panel",
-  description: "Admin analytics and management for Nexus Escrow",
+  title: "PayCrow Admin Panel",
+  description: "Admin analytics and management for PayCrow",
 };
 
 export default function RootLayout({

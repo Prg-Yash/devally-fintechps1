@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatAmount, formatDate } from "@/app/lib/admin-api";
 import { BadgeCheck, ChevronRight, CircleDollarSign, ReceiptText, Wallet } from "lucide-react";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 interface PurchaseRow {
   id: string;

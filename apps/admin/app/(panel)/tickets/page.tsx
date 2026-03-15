@@ -5,13 +5,17 @@ import { useEffect, useMemo, useState } from "react";
 import { formatDate } from "@/app/lib/admin-api";
 import { AlertTriangle, ChevronRight, ShieldAlert, Sparkles } from "lucide-react";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:5000";
+
+const TICKET_STATUSES = ["OPEN", "IN_REVIEW", "RESOLVED", "CLOSED", "REJECTED"] as const;
+const TICKET_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 
 interface TicketRow {
   id: string;
   title: string;
   reason: string;
   status: string;
+  severity: string;
   severity: string;
   evidenceUrl?: string | null;
   createdAt: string;
@@ -201,6 +205,7 @@ export default function TicketsPage() {
             <tr>
               <th>Title</th>
               <th>Status</th>
+              <th>Severity</th>
               <th>Severity</th>
               <th>Reason</th>
               <th>Raised By</th>
