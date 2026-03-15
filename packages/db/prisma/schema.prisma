@@ -32,6 +32,7 @@ model User {
   createdAgreements  Agreement[] @relation("Creator")
   receivedAgreements Agreement[] @relation("Receiver")
   agreementChangeRequests AgreementChangeRequest[]
+  notifications Notification[]
   raisedTickets      Ticket[]    @relation("RaisedTickets")
   ticketsAgainstMe   Ticket[]    @relation("TicketsAgainstUser")
 
@@ -133,13 +134,32 @@ model Purchase {
   @@map("purchase")
 }
 
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  message    String
+  type       String
+  entityType String?
+  entityId   String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, isRead])
+  @@map("notification")
+}
+
 model Agreement {
   id          String   @id @default(cuid())
   title       String
   description String?
   amount      Float
   status      String   @default("DRAFT")
-  currency    String   @default("USDC")
+  currency    String   @default("PUSD")
   dueDate     DateTime?
   fundingError String?
   createdAt   DateTime @default(now())
