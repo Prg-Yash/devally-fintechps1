@@ -47,16 +47,45 @@ const LoginForm = () => {
     await authClient.signIn.email(
       { ...data, callbackURL: "/" },
       {
-        onError: (error) => {
-          toast.error(error.error.message || "Login failed")
-          console.error("Login error:", error)
-          setErrorCode(error.error.code)
+        onError: (ctx) => {
+          console.error("Login Context:", ctx)
+          const err = ctx.error
+          if (err) {
+            console.error("Login error details:", { code: err.code, message: err.message, status: err.status })
+          }
+          
+          if (err?.code === "ACCOUNT_BANNED") {
+            toast.error("Your account is banned. Please contact admin support.")
+            window.location.href = "/banned"
+            setIsSubmitting(false)
+            return
+          }
+          
+          const errorMessage = err?.message || "Login failed"
+          toast.error(errorMessage)
+          setErrorCode(err?.code)
           setIsSubmitting(false)
         },
-        onSuccess: () => {
-          toast.success("Login successful! Welcome back.")
-          setIsSubmitting(false)
-          // router.push("/")
+        onSuccess: async () => {
+          try {
+            const statusRes = await fetch("/api/user/access-status", { cache: "no-store" })
+            const statusData = await statusRes.json()
+
+            if (statusRes.ok && statusData?.isBanned) {
+              await authClient.signOut()
+              toast.error("Your account is banned. Please contact admin support.")
+              window.location.href = "/banned"
+              return
+            }
+
+            toast.success("Login successful! Welcome back.")
+            router.push("/dashboard")
+          } catch (error) {
+            console.error("Failed to verify account status after login:", error)
+            toast.error("Login succeeded, but status check failed. Please try again.")
+          } finally {
+            setIsSubmitting(false)
+          }
         }
       }
     )
@@ -208,4 +237,4 @@ const LoginForm = () => {
 }
 
 export default LoginForm
-
+

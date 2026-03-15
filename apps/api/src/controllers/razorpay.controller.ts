@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import prisma from '../config/prisma';
 import { razorpay } from '../config/razorpay';
 import { distributePccToWallet, getPccDistributorContractAddress } from '../config/pcc';
+import { notifyUser } from '../config/notification-service';
 
 const INR_TO_PCC_RATE = Number(process.env.INR_TO_PCC_RATE ?? '1');
 
@@ -56,6 +57,16 @@ export const createOrder = async (req: Request, res: Response) => {
         razorpayOrderId: order.id,
         status: 'PENDING',
       },
+    });
+
+    await notifyUser({
+      userId,
+      title: 'Stable-coin purchase initiated',
+      message: `Your order ${order.id} for INR ${Number(amount).toFixed(2)} was created. Complete payment to receive PCC.`,
+      type: 'PURCHASE',
+      entityType: 'purchase',
+      entityId: order.id,
+      emailSubject: 'Devally: PCC purchase initiated',
     });
 
     res.json({
@@ -168,6 +179,16 @@ export const verifyPayment = async (req: Request, res: Response) => {
           status: 'COMPLETED',
           razorpayPaymentId: razorpay_payment_id,
         },
+      });
+
+      await notifyUser({
+        userId: existingPurchase.userId,
+        title: 'Stable-coin purchase completed',
+        message: `Your payment is verified and PCC has been transferred to ${walletAddress}.`,
+        type: 'PURCHASE',
+        entityType: 'purchase',
+        entityId: existingPurchase.id,
+        emailSubject: 'Devally: PCC delivered to your wallet',
       });
 
       console.log(`[Frontend Verification] Payment Done! Order: ${razorpay_order_id}`);

@@ -36,8 +36,8 @@ const ChangePasswordForm = () => {
 
   const handleChangePassword = async (data) => {
     await authClient.changePassword(data, {
-      onError: (error) => {
-        toast.error(error.message || "Failed to change password")
+      onError: (ctx) => {
+        toast.error(ctx.error?.message || "Failed to change password")
       },
       onSuccess: async () => {
         if (data.revokeOtherSessions) {

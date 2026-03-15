@@ -16,19 +16,25 @@
     "@aws-sdk/s3-request-presigner": "^3.1009.0",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",
+    "@scure/bip32": "^2.0.1",
     "@types/multer": "^2.1.0",
     "cors": "^2.8.6",
     "dotenv": "^16.0.3",
     "express": "^5.2.1",
     "multer": "^2.1.1",
+    "nodemailer": "^7.0.13",
     "pg": "^8.20.0",
     "razorpay": "^2.9.5",
-    "viem": "^2.38.2"
+    "streamsearch": "^1.1.0",
+    "viem": "^2.38.2",
+    "yn": "^3.1.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
     "@types/node": "^22.19.15",
+    "@types/nodemailer": "^7.0.11",
+    "@types/pg": "^8.18.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"

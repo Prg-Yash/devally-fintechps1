@@ -17,6 +17,8 @@ import {
   Activity,
   ChevronLeft,
   Menu,
+  Bell,
+  CheckCheck,
 } from 'lucide-react'
 import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react"
 import { thirdwebClient } from "@/lib/thirdweb-client"
@@ -25,6 +27,20 @@ import { AICoPilotPopup } from '@/components/AICoPilotPopup'
 import { formatPccBaseUnits, getPccBalance } from '@/lib/paycrow-coin'
 
 const API_BASE_URL = '/api'
+const API_SERVER_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:5000'
+
+type AppNotification = {
+  id: string
+  userId: string
+  title: string
+  message: string
+  type: string
+  entityType: string | null
+  entityId: string | null
+  isRead: boolean
+  createdAt: string
+  updatedAt: string
+}
 
 // ─── NAV ITEMS ───
 const navItems = [
@@ -34,6 +50,137 @@ const navItems = [
   { href: '/buy-pcc', label: 'Buy PCC', icon: Coins },
   { href: '/tickets', label: 'Tickets', icon: ShieldAlert },
 ]
+
+const NotificationCenter = ({ userId }: { userId: string }) => {
+  const [open, setOpen] = useState(false)
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [loading, setLoading] = useState(false)
+
+  const loadNotifications = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch(
+        `${API_SERVER_BASE_URL}/notifications?userId=${encodeURIComponent(userId)}&limit=25`,
+        { cache: 'no-store' },
+      )
+
+      if (!response.ok) {
+        return
+      }
+
+      const data = await response.json()
+      setNotifications(Array.isArray(data.notifications) ? data.notifications : [])
+      setUnreadCount(Number(data.unreadCount || 0))
+    } catch (error) {
+      console.error('Failed to load notifications:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!userId) {
+      return
+    }
+
+    loadNotifications()
+    const interval = setInterval(loadNotifications, 30000)
+
+    return () => clearInterval(interval)
+  }, [userId])
+
+  const markOneRead = async (notificationId: string) => {
+    try {
+      await fetch(`${API_SERVER_BASE_URL}/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      setNotifications((prev) =>
+        prev.map((item) => (item.id === notificationId ? { ...item, isRead: true } : item)),
+      )
+      setUnreadCount((prev) => Math.max(0, prev - 1))
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error)
+    }
+  }
+
+  const markAllRead = async () => {
+    try {
+      await fetch(`${API_SERVER_BASE_URL}/notifications/read-all`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })))
+      setUnreadCount(0)
+    } catch (error) {
+      console.error('Failed to mark all notifications as read:', error)
+    }
+  }
+
+  return (
+    <div className="relative z-30">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="relative rounded-xl border border-[#d9d0bf] bg-white p-2.5 text-[#1A2406] shadow-sm"
+      >
+        <Bell className="h-5 w-5" />
+        {unreadCount > 0 ? (
+          <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[#8f1f2f] px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        ) : null}
+      </button>
+
+      {open ? (
+        <div className="absolute right-0 mt-2 w-85 rounded-2xl border border-[#d9d0bf] bg-white p-3 shadow-[0_20px_50px_rgba(13,17,4,0.15)]">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <p className="text-sm font-bold text-[#122016]">Notifications</p>
+            <button
+              type="button"
+              onClick={markAllRead}
+              className="inline-flex items-center gap-1 rounded-md border border-[#d9d0bf] px-2 py-1 text-xs text-[#1f6a42]"
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              Mark all read
+            </button>
+          </div>
+
+          <div className="max-h-90 space-y-2 overflow-y-auto pr-1">
+            {loading ? <p className="p-3 text-xs text-[#526157]">Loading notifications...</p> : null}
+
+            {!loading && notifications.length === 0 ? (
+              <p className="p-3 text-xs text-[#526157]">No notifications yet.</p>
+            ) : null}
+
+            {notifications.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => markOneRead(item.id)}
+                className={`w-full rounded-xl border p-3 text-left ${
+                  item.isRead ? 'border-[#ece6d9] bg-[#fcfbf8]' : 'border-[#d9d0bf] bg-[#f9fdf3]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#122016]">{item.title}</p>
+                  {!item.isRead ? <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#1f6a42]" /> : null}
+                </div>
+                <p className="mt-1 text-xs text-[#526157]">{item.message}</p>
+                <p className="mt-2 text-[10px] uppercase tracking-wide text-[#8b968f]">
+                  {new Date(item.createdAt).toLocaleString('en-IN')}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 // ─── SIDEBAR COMPONENT (ARCHITECTURALLY ISOLATED) ───
 const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) => {
@@ -127,7 +274,7 @@ const Sidebar = ({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
                 transition={{ duration: 0.3 }}
                 className="font-jakarta font-bold text-xl tracking-[-0.04em] whitespace-nowrap"
               >
-                Nexus Escrow
+                PayCrow
               </motion.span>
             )}
           </AnimatePresence>
@@ -249,17 +396,53 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter()
   const [isChecking, setIsChecking] = useState(true)
   const [collapsed, setCollapsed] = useState(false)
+  const [banRedirecting, setBanRedirecting] = useState(false)
 
   useEffect(() => {
-    if (!isPending) {
+    let cancelled = false
+
+    const validateAccess = async () => {
+      if (isPending) {
+        return
+      }
+
       if (session == null) {
-        toast.error('You must be logged in to access the dashboard.')
-        router.push('/login')
-      } else {
+        if (!banRedirecting) {
+          toast.error('You must be logged in to access the dashboard.')
+          router.push('/login')
+        }
+        if (!cancelled) {
+          setIsChecking(false)
+        }
+        return
+      }
+
+      try {
+        const response = await fetch('/api/user/access-status', { cache: 'no-store' })
+        const data = await response.json()
+
+        if (response.ok && data?.isBanned) {
+          setBanRedirecting(true)
+          toast.error('Your account has been banned. Please contact admin support.')
+          await authClient.signOut()
+          window.location.href = '/banned'
+          return
+        }
+      } catch (error) {
+        console.error('Failed to validate account status:', error)
+      }
+
+      if (!cancelled) {
         setIsChecking(false)
       }
     }
-  }, [session, isPending, router])
+
+    validateAccess()
+
+    return () => {
+      cancelled = true
+    }
+  }, [session, isPending, router, banRedirecting])
 
   if (isPending || isChecking) return <Loading />
 
@@ -271,6 +454,14 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
 
       <div className="relative flex-1 flex flex-col min-h-screen overflow-hidden">
+        {session?.user?.id ? (
+          <div className="pointer-events-none absolute right-6 top-6 hidden md:block">
+            <div className="pointer-events-auto">
+              <NotificationCenter userId={session.user.id} />
+            </div>
+          </div>
+        ) : null}
+
         {/* Mobile Header */}
         <div className="md:hidden flex items-center justify-between px-6 py-4 bg-[#1A2406] text-white">
           <div className="flex items-center gap-2">
@@ -279,9 +470,12 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
             <span className="font-jakarta font-bold text-lg tracking-[-0.04em]">Nexus</span>
           </div>
-          <button className="p-2 bg-white/5 rounded-xl">
-            <Menu className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            {session?.user?.id ? <NotificationCenter userId={session.user.id} /> : null}
+            <button className="p-2 bg-white/5 rounded-xl">
+              <Menu className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         <main className="flex-1 p-6 md:p-10 lg:p-12 overflow-y-auto scrollbar-none scroll-smooth">

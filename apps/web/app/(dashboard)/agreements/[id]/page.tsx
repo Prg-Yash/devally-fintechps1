@@ -3,16 +3,16 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  ArrowLeft, 
-  ShieldCheck, 
-  Clock, 
-  Wallet, 
-  FileText, 
-  CheckCircle2, 
-  Zap, 
-  DollarSign, 
-  User, 
+import {
+  ArrowLeft,
+  ShieldCheck,
+  Clock,
+  Wallet,
+  FileText,
+  CheckCircle2,
+  Zap,
+  DollarSign,
+  User,
   Calendar,
   ChevronRight,
   Shield,
@@ -21,14 +21,21 @@ import {
   Loader2,
   AlertCircle
 } from "lucide-react";
-import { Button } from "@/components/ui/button";  
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { authClient } from "@/lib/auth-client";
 import {
   formatPusdAmount,
   getEscrowContract,
+  getPermitNonce,
   getProjectById,
+  getProjectIdByClientRef,
+  getPusdContract,
+  PERMIT_DOMAIN,
+  PUSD_CONTRACT_ADDRESS,
+  splitSignature,
   shortAddress,
   type OnchainProject,
   scalePusdAmount,
@@ -37,6 +44,10 @@ import {
 import { thirdwebClient } from "@/lib/thirdweb-client";
 import { useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
 import { prepareContractCall, sendAndConfirmTransaction } from "thirdweb";
+import { verifyTypedData } from "viem";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { markMilestonePaidAction } from "./actions";
 
 // ─── Animation Config ───
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 };
@@ -57,6 +68,15 @@ interface Milestone {
   amount: number;
   status: string;
   dueDate?: string;
+  paidAt?: string;
+  payoutTxHash?: string;
+}
+
+interface ChangeRequest {
+  id: string;
+  note: string;
+  createdAt: string;
+  requestedBy?: { id: string; name: string; email: string };
 }
 
 interface Agreement {
@@ -73,6 +93,9 @@ interface Agreement {
   projectId?: number;
   receiverAddress?: string;
   transactionHash?: string;
+  fundingError?: string | null;
+  dueDate?: string;
+  changeRequests?: ChangeRequest[];
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
@@ -81,6 +104,7 @@ export default function AgreementDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
+  const { data: session } = authClient.useSession();
 
   const account = useActiveAccount();
   const activeWallet = useActiveWallet();
@@ -92,30 +116,67 @@ export default function AgreementDetailPage() {
   const [onchainData, setOnchainData] = useState<OnchainProject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isReleasing, setIsReleasing] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [changeNote, setChangeNote] = useState("");
+  const [approveWallet, setApproveWallet] = useState("");
+  const [fundingError, setFundingError] = useState<string | null>(null);
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
+
+  const isProtocolRoute = id?.startsWith("pid-") || !isNaN(Number(id));
+
+  const fetchAgreementFromUserLists = async (userId: string, agreementId: string) => {
+    const [incomingRes, outgoingRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/agreements/incoming?userId=${userId}`),
+      fetch(`${API_BASE_URL}/agreements/outgoing?userId=${userId}`),
+    ]);
+
+    const incomingData = incomingRes.ok ? await incomingRes.json().catch(() => ({})) : {};
+    const outgoingData = outgoingRes.ok ? await outgoingRes.json().catch(() => ({})) : {};
+
+    const incoming = Array.isArray(incomingData?.agreements) ? incomingData.agreements : [];
+    const outgoing = Array.isArray(outgoingData?.agreements) ? outgoingData.agreements : [];
+    const all = [...incoming, ...outgoing] as Agreement[];
+
+    return all.find((a) => a.id === agreementId) || null;
+  };
 
   const fetchDetails = async () => {
     try {
       setIsLoading(true);
-      
+
       let agreementData: Agreement | null = null;
       let targetProjectId: number | null = null;
 
-      // FIRST: Always try to fetch directly by ID
-      try {
-        const res = await fetch(`${API_BASE_URL}/agreements/${id}`);
-        if (res.ok) {
-          const data = await res.json();
-          agreementData = data.agreement || null;
+      // For normal agreement links, prefer incoming/outgoing lists scoped by logged-in user.
+      if (!isProtocolRoute && session?.user?.id) {
+        try {
+          agreementData = await fetchAgreementFromUserLists(session.user.id, id);
           targetProjectId = agreementData?.projectId ?? null;
+        } catch (e) {
+          console.warn("Scoped agreement list fetch failed", e);
         }
-      } catch (e) {
-        console.warn("Direct DB fetch failed", e);
       }
 
-      // SECOND: If not found but looks like "pid-X" or just a number, try by projectId
+      // If not found but looks like "pid-X" or just a number, try by projectId.
       if (!agreementData) {
+        // Try direct lookup by agreement id before pid-based fallback.
+        try {
+          const directRes = await fetch(`${API_BASE_URL}/agreements/${id}`);
+          if (directRes.ok) {
+            const directData = await directRes.json();
+            agreementData = directData?.agreement || null;
+            targetProjectId = agreementData?.projectId ?? null;
+          }
+        } catch (e) {
+          console.warn("Direct agreement fetch failed", e);
+        }
+
+        if (agreementData) {
+          setAgreement(agreementData);
+        }
+
         if (id.startsWith("pid-")) {
           targetProjectId = parseInt(id.replace("pid-", ""));
         } else if (!isNaN(Number(id))) {
@@ -135,7 +196,15 @@ export default function AgreementDetailPage() {
         }
       }
 
+      // Canonical URL: if this page was opened via pid-based route but DB mapping exists,
+      // redirect to the stable agreement-id URL so both chain and DB data live under one link.
+      if (agreementData?.id && id !== agreementData.id) {
+        router.replace(`/agreements/${agreementData.id}`);
+      }
+
       setAgreement(agreementData);
+      setApproveWallet(agreementData?.receiverAddress || "");
+      setFundingError((agreementData as any)?.fundingError || null);
 
       // 2. Fetch On-chain Data
       if (targetProjectId !== null) {
@@ -155,15 +224,253 @@ export default function AgreementDetailPage() {
   };
 
   useEffect(() => {
-    if (id) fetchDetails();
-  }, [id]);
+    if (!id) return;
+    if (!isProtocolRoute && !session?.user?.id) return;
+    fetchDetails();
+  }, [id, isProtocolRoute, session?.user?.id]);
+
+  const agreementIdToClientRefId = (agreementId: string) => {
+    const bytes = new TextEncoder().encode(agreementId);
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const tail = (hex.slice(-64) || "0").padStart(64, "0");
+    return BigInt(`0x${tail}`);
+  };
+
+  const handleRequestChanges = async () => {
+    if (!agreement || !session?.user?.id) return;
+    if (!changeNote.trim()) {
+      toast.error("Please add a change request note");
+      return;
+    }
+
+    try {
+      setIsSubmittingReview(true);
+      const res = await fetch(`${API_BASE_URL}/agreements/${agreement.id}/request-changes`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receiverId: session.user.id,
+          note: changeNote,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to submit change request");
+      }
+
+      toast.success("Change request submitted");
+      setChangeNote("");
+      await fetchDetails();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to request changes");
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const handleApproveForFunding = async () => {
+    if (!agreement || !session?.user?.id) return;
+    if (!approveWallet.trim()) {
+      toast.error("Wallet address is required to approve for funding");
+      return;
+    }
+
+    try {
+      setIsSubmittingReview(true);
+      const res = await fetch(`${API_BASE_URL}/agreements/${agreement.id}/approve`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receiverId: session.user.id,
+          receiverAddress: approveWallet.trim(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to approve agreement");
+      }
+
+      toast.success("Agreement approved and ready to fund");
+      await fetchDetails();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to approve agreement");
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const handlePublishAndFund = async () => {
+    if (!agreement || !session?.user?.id) return;
+    if (!activeSigner) {
+      toast.error("Connect your client wallet to publish and fund");
+      return;
+    }
+
+    if (!agreement.receiverAddress) {
+      toast.error("Freelancer wallet address is missing. Ask freelancer to approve first.");
+      return;
+    }
+
+    try {
+      setIsPublishing(true);
+      setFundingError(null);
+
+      const ownerAddress = activeSigner.address as `0x${string}`;
+      const scaledAmount = scalePusdAmount(String(agreement.amount));
+      const permitDeadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 60);
+      const nonce = await getPermitNonce(thirdwebClient, ownerAddress);
+      const clientRefId = agreementIdToClientRefId(agreement.id);
+
+      const permitDomain = {
+        ...PERMIT_DOMAIN,
+        verifyingContract: PUSD_CONTRACT_ADDRESS as `0x${string}`,
+      } as const;
+
+      const permitTypes = {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      } as const;
+
+      const permitMessage = {
+        owner: ownerAddress,
+        spender: ESCROW_CONTRACT_ADDRESS as `0x${string}`,
+        value: scaledAmount,
+        nonce,
+        deadline: permitDeadline,
+      } as const;
+
+      const signature = await activeSigner.signTypedData({
+        domain: permitDomain,
+        types: permitTypes,
+        primaryType: "Permit",
+        message: permitMessage,
+      });
+
+      const signatureValid = await verifyTypedData({
+        address: ownerAddress,
+        domain: permitDomain,
+        types: permitTypes,
+        primaryType: "Permit",
+        message: permitMessage,
+        signature,
+      });
+
+      if (!signatureValid) {
+        throw new Error("Permit signature verification failed");
+      }
+
+      const { v, r, s } = splitSignature(signature);
+
+      const tx = prepareContractCall({
+        contract: escrowContract,
+        method:
+          "function createAndFundAgreementWithClientRef(uint256 _clientRefId, address _freelancer, uint256 _amount, uint256 _deadline, uint8 v, bytes32 r, bytes32 s)",
+        params: [
+          clientRefId,
+          agreement.receiverAddress as `0x${string}`,
+          scaledAmount,
+          permitDeadline,
+          Number(v),
+          r,
+          s,
+        ],
+      });
+
+      const result = await sendAndConfirmTransaction({
+        account: activeSigner,
+        transaction: tx,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      const projectId = await getProjectIdByClientRef(thirdwebClient, ownerAddress, clientRefId);
+
+      const publishRes = await fetch(`${API_BASE_URL}/agreements/${agreement.id}/publish`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creatorId: session.user.id,
+          projectId: Number(projectId),
+          transactionHash: result.transactionHash,
+          receiverAddress: agreement.receiverAddress,
+          clientRefId: clientRefId.toString(),
+        }),
+      });
+
+      const publishData = await publishRes.json().catch(() => ({}));
+      if (!publishRes.ok) {
+        throw new Error(publishData?.error || "Funding succeeded but publish sync failed");
+      }
+
+      toast.success("Agreement published on-chain and activated");
+      await fetchDetails();
+    } catch (error: any) {
+      const message = error?.message || "Funding failed";
+      setFundingError(message);
+      toast.error(message);
+
+      if (agreement && session?.user?.id) {
+        await fetch(`${API_BASE_URL}/agreements/${agreement.id}/funding-error`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            creatorId: session.user.id,
+            errorMessage: message,
+          }),
+        }).catch(() => null);
+      }
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleReleaseMilestone = async (milestone: Milestone) => {
+    if (!agreement || !onchainData || !activeSigner) return;
+
+    try {
+      setIsReleasing(true);
+      const payoutAmount = scalePusdAmount(String(milestone.amount));
+
+      const tx = prepareContractCall({
+        contract: escrowContract,
+        method: "function releaseMilestone(uint256 _projectId, uint256 _amount)",
+        params: [onchainData.projectId, payoutAmount],
+      });
+
+      const result = await sendAndConfirmTransaction({
+        account: activeSigner,
+        transaction: tx,
+      });
+
+      await markMilestonePaidAction({
+        agreementId: agreement.id,
+        milestoneId: milestone.id,
+        payoutTxHash: result.transactionHash,
+      });
+
+      toast.success(`Milestone \"${milestone.title}\" released and synced`);
+      await fetchDetails();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to release milestone");
+    } finally {
+      setIsReleasing(false);
+    }
+  };
 
   const handleReleaseFull = async () => {
     if (!onchainData || !activeSigner) return;
     try {
       setIsReleasing(true);
       const remaining = onchainData.amount - onchainData.releasedAmount;
-      
+
       const tx = prepareContractCall({
         contract: escrowContract,
         method: "function releaseMilestone(uint256 _projectId, uint256 _amount)",
@@ -209,32 +516,37 @@ export default function AgreementDetailPage() {
   const displayTitle = agreement?.title || (onchainData ? `Protocol Project #${onchainData.projectId.toString()}` : "Unknown Project");
   const displayStatus = agreement?.status || (onchainData?.isCompleted ? "COMPLETED" : onchainData?.isFunded ? "FUNDED" : "PENDING");
   const displayId = agreement?.id || (onchainData ? `ONCHAIN-PID-${onchainData.projectId.toString()}` : id);
+  const linkedProjectId = agreement?.projectId ?? (onchainData ? Number(onchainData.projectId) : null);
+  const creationTxHash = agreement?.transactionHash || null;
+  const txExplorerUrl = creationTxHash ? `https://sepolia.etherscan.io/tx/${creationTxHash}` : null;
 
   const bTotal = onchainData ? BigInt(onchainData.amount) : BigInt(0);
   const bPaid = onchainData ? BigInt(onchainData.releasedAmount) : BigInt(0);
   const remaining = bTotal - bPaid;
   const progress = bTotal > BigInt(0) ? Number((bPaid * BigInt(100)) / bTotal) : 0;
+  const agreementMilestonesTotal = agreement?.milestones?.reduce((sum, milestone) => sum + (Number(milestone.amount) || 0), 0) || 0;
+  const milestonePublishValid = agreement ? Math.abs(agreementMilestonesTotal - Number(agreement.amount || 0)) < 0.000001 : false;
 
   return (
-    <motion.div 
-      initial="hidden" 
-      animate="visible" 
+    <motion.div
+      initial="hidden"
+      animate="visible"
       variants={stagger}
       className="mx-auto max-w-6xl pt-2 pb-20 space-y-12"
     >
       {/* ── Header ── */}
       <motion.div variants={maskedReveal} className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 border-b border-[#1A2406]/5 pb-12 px-1">
         <div className="space-y-4">
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => router.back()}
             className="p-0 h-auto hover:bg-transparent text-[#1A2406]/40 hover:text-[#1A2406] transition-colors gap-2 group"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
             <span className="text-[10px] font-bold uppercase tracking-widest">Back to Registry</span>
           </Button>
-          
+
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <h1 className="text-4xl font-jakarta font-bold tracking-[-0.04em] text-[#1A2406]">
@@ -270,7 +582,7 @@ export default function AgreementDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
         {/* ── Main Content ── */}
         <div className="lg:col-span-8 space-y-16">
-          
+
           {agreement ? (
             <>
               {/* Section: Narrative */}
@@ -281,7 +593,7 @@ export default function AgreementDetailPage() {
                   </div>
                   <h2 className="text-xl font-jakarta font-bold text-[#1A2406]">Agreement Terms</h2>
                 </div>
-                
+
                 <div className="p-10 rounded-[40px] bg-white border border-[#1A2406]/5 shadow-sm space-y-8">
                   <div className="space-y-4">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/20">The Agreement</p>
@@ -337,6 +649,78 @@ export default function AgreementDetailPage() {
                 </div>
               </motion.section>
 
+              {(agreement.status === "DRAFT" || agreement.status === "NEGOTIATING" || agreement.status === "READY_TO_FUND") && (
+                <motion.section variants={maskedReveal} className="space-y-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-2xl bg-white shadow-sm border border-[#1A2406]/5 flex items-center justify-center">
+                      <ShieldCheck className="w-5 h-5 text-[#1A2406]/40" />
+                    </div>
+                    <h2 className="text-xl font-jakarta font-bold text-[#1A2406]">Draft to Escrow Workflow</h2>
+                  </div>
+
+                  <div className="p-6 rounded-[28px] bg-white border border-[#1A2406]/5 space-y-4">
+                    <p className="text-xs text-[#1A2406]/50">
+                      Current state: <span className="font-bold text-[#1A2406]">{agreement.status}</span>
+                    </p>
+
+                    {(agreement as any).changeRequests?.length > 0 && (
+                      <div className="space-y-2 rounded-2xl bg-[#1A2406]/[0.02] border border-[#1A2406]/5 p-4">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Change Request Log</p>
+                        {(agreement as any).changeRequests.map((entry: any) => (
+                          <div key={entry.id} className="text-xs text-[#1A2406]/70">
+                            <span className="font-semibold">{entry.requestedBy?.name || entry.requestedBy?.email}</span>: {entry.note}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {session?.user?.id === agreement.receiver?.id && agreement.status !== "READY_TO_FUND" && (
+                      <div className="grid gap-4">
+                        <div className="space-y-2">
+                          <Label>Need revisions?</Label>
+                          <Input
+                            type="text"
+                            value={changeNote}
+                            onChange={(e) => setChangeNote(e.target.value)}
+                            placeholder="Ask client for specific changes"
+                          />
+                          <Button disabled={isSubmittingReview} onClick={handleRequestChanges} variant="outline">
+                            {isSubmittingReview ? <Loader2 className="w-4 h-4 animate-spin" /> : "Request Changes"}
+                          </Button>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Wallet for escrow payout</Label>
+                          <Input
+                            type="text"
+                            value={approveWallet}
+                            onChange={(e) => setApproveWallet(e.target.value)}
+                            placeholder="0x..."
+                          />
+                          <Button disabled={isSubmittingReview} onClick={handleApproveForFunding}>
+                            {isSubmittingReview ? <Loader2 className="w-4 h-4 animate-spin" /> : "Approve"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {session?.user?.id === agreement.creator?.id && agreement.status === "READY_TO_FUND" && (
+                      <div className="space-y-3">
+                        {!milestonePublishValid && (
+                          <p className="text-xs text-red-500">Milestone total must match agreement total.</p>
+                        )}
+                        {fundingError && (
+                          <p className="text-xs text-red-500">Last funding error: {fundingError}</p>
+                        )}
+                        <Button onClick={handlePublishAndFund} disabled={isPublishing || !milestonePublishValid} className="w-full">
+                          {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Publish & Fund"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </motion.section>
+              )}
+
               {/* Section: Milestone Registry */}
               <motion.section variants={maskedReveal} className="space-y-8">
                 <div className="flex items-center gap-4">
@@ -359,26 +743,38 @@ export default function AgreementDetailPage() {
                             </div>
                             <div className="flex items-center gap-6">
                               <div className="flex items-center gap-2">
-                                 <DollarSign className="w-3.5 h-3.5 text-[#1A2406]/20" />
-                                 <span className="text-sm font-bold text-[#1A2406]">{ms.amount} <span className="text-[10px] text-[#1A2406]/30 uppercase">PUSD</span></span>
+                                <DollarSign className="w-3.5 h-3.5 text-[#1A2406]/20" />
+                                <span className="text-sm font-bold text-[#1A2406]">{ms.amount} <span className="text-[10px] text-[#1A2406]/30 uppercase">PUSD</span></span>
                               </div>
                               {ms.dueDate && (
                                 <div className="flex items-center gap-2">
-                                   <Calendar className="w-3.5 h-3.5 text-[#1A2406]/20" />
-                                   <span className="text-[10px] font-bold uppercase tracking-wider text-[#1A2406]/40">{new Date(ms.dueDate).toLocaleDateString()}</span>
+                                  <Calendar className="w-3.5 h-3.5 text-[#1A2406]/20" />
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#1A2406]/40">{new Date(ms.dueDate).toLocaleDateString()}</span>
                                 </div>
                               )}
                             </div>
                           </div>
                         </div>
-                        <Badge variant="outline" className="rounded-full bg-[#FAFAF9] text-[8px] font-black uppercase tracking-widest text-[#1A2406]/30 border-none px-3 py-1">
-                          {ms.status}
-                        </Badge>
+                        <div className="flex flex-col items-end gap-2">
+                          <Badge variant="outline" className="rounded-full bg-[#FAFAF9] text-[8px] font-black uppercase tracking-widest text-[#1A2406]/30 border-none px-3 py-1">
+                            {ms.status}
+                          </Badge>
+                          {agreement.status === "ACTIVE" && session?.user?.id === agreement.creator?.id && ms.status !== "PAID" && onchainData && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleReleaseMilestone(ms)}
+                              disabled={isReleasing}
+                              className="h-8 text-[10px] uppercase tracking-widest"
+                            >
+                              {isReleasing ? <Loader2 className="w-3 h-3 animate-spin" /> : "Release Milestone"}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )) : (
                     <div className="p-8 rounded-[28px] bg-[#1A2406]/[0.02] border border-dashed border-[#1A2406]/10 text-center">
-                       <p className="text-xs text-[#1A2406]/30 font-medium italic">No milestones defined for this agreement.</p>
+                      <p className="text-xs text-[#1A2406]/30 font-medium italic">No milestones defined for this agreement.</p>
                     </div>
                   )}
                 </div>
@@ -394,15 +790,15 @@ export default function AgreementDetailPage() {
                 This project exists securely on the smart contract, but its off-chain details (title, description, payment roadmap, user profiles) were not found in the platform registry.
               </p>
               <div className="flex flex-col sm:flex-row items-center gap-6 mt-8 p-6 bg-[#FAFAF9] rounded-3xl text-left w-full justify-center">
-                 <div className="space-y-1 text-center sm:text-left">
-                   <p className="text-[10px] uppercase tracking-widest font-bold text-[#1A2406]/30">Client Wallet</p>
-                   <p className="font-mono text-sm text-[#1A2406]">{onchainData ? shortAddress(onchainData.client) : "..."}</p>
-                 </div>
-                 <div className="hidden sm:block w-px h-10 bg-[#1A2406]/10 mx-4" />
-                 <div className="space-y-1 text-center sm:text-left">
-                   <p className="text-[10px] uppercase tracking-widest font-bold text-[#1A2406]/30">Freelancer Wallet</p>
-                   <p className="font-mono text-sm text-[#1A2406]">{onchainData ? shortAddress(onchainData.freelancer) : "..."}</p>
-                 </div>
+                <div className="space-y-1 text-center sm:text-left">
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-[#1A2406]/30">Client Wallet</p>
+                  <p className="font-mono text-sm text-[#1A2406]">{onchainData ? shortAddress(onchainData.client) : "..."}</p>
+                </div>
+                <div className="hidden sm:block w-px h-10 bg-[#1A2406]/10 mx-4" />
+                <div className="space-y-1 text-center sm:text-left">
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-[#1A2406]/30">Freelancer Wallet</p>
+                  <p className="font-mono text-sm text-[#1A2406]">{onchainData ? shortAddress(onchainData.freelancer) : "..."}</p>
+                </div>
               </div>
             </motion.section>
           )}
@@ -410,18 +806,18 @@ export default function AgreementDetailPage() {
 
         {/* ── Sidebar: Financial State ── */}
         <div className="lg:col-span-4 sticky top-8 space-y-8">
-          
+
           {/* Vault Balance Card */}
           <motion.div variants={maskedReveal}>
             <Card className="border-0 bg-[#1A2406] text-white rounded-[40px] overflow-hidden shadow-2xl shadow-[#1A2406]/40">
               <div className="absolute top-0 left-0 w-full h-1 bg-white/10">
-                <motion.div 
+                <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${progress}%` }}
                   className="h-full bg-[#D9F24F]"
                 />
               </div>
-              
+
               <CardContent className="p-8 space-y-8">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -452,13 +848,13 @@ export default function AgreementDetailPage() {
                 </div>
 
                 {onchainData && !onchainData.isCompleted && remaining > 0n && (
-                   <Button 
+                  <Button
                     disabled={isReleasing || !activeSigner}
                     onClick={handleReleaseFull}
                     className="w-full h-14 rounded-2xl bg-[#D9F24F] text-[#1A2406] hover:bg-[#c4db47] font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-xl shadow-[#D9F24F]/10"
-                   >
-                     {isReleasing ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-4 h-4" /> Authorize Full Payout</>}
-                   </Button>
+                  >
+                    {isReleasing ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Zap className="w-4 h-4" /> Authorize Full Payout</>}
+                  </Button>
                 )}
 
                 {!onchainData && (
@@ -482,16 +878,35 @@ export default function AgreementDetailPage() {
           {/* Verification Footnote */}
           <motion.div variants={maskedReveal} className="p-8 rounded-[32px] bg-[#1A2406]/[0.02] border border-dashed border-[#1A2406]/10 flex flex-col items-center text-center gap-6">
             <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center">
-                <ShieldCheck className="w-6 h-6 text-[#1A2406]/40" />
+              <ShieldCheck className="w-6 h-6 text-[#1A2406]/40" />
             </div>
             <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406] mb-2">Network Verification</p>
-                <p className="text-[10px] font-medium text-[#1A2406]/40 leading-relaxed">
-                    Protected by PayCrow Secure Protocol.<br/>
-                    On-chain protection: {shortAddress(ESCROW_CONTRACT_ADDRESS)}
-                </p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406] mb-2">Network Verification</p>
+              <p className="text-[10px] font-medium text-[#1A2406]/40 leading-relaxed">
+                Protected by PayCrow Secure Protocol.<br />
+                On-chain protection: {shortAddress(ESCROW_CONTRACT_ADDRESS)}
+              </p>
             </div>
             <div className="w-full pt-4 border-t border-[#1A2406]/5">
+              <div className="mb-3 space-y-1 text-left">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/30">On-Chain Reference</p>
+                <p className="text-[10px] font-mono text-[#1A2406]/40">
+                  {linkedProjectId !== null ? `Project ID: ${linkedProjectId}` : "Project ID pending"}
+                </p>
+                {creationTxHash ? (
+                  <a
+                    href={txExplorerUrl || undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[10px] font-mono text-[#1A2406]/60 hover:text-[#1A2406] transition-colors"
+                  >
+                    Tx: {shortAddress(creationTxHash)}
+                    <ArrowUpRight className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <p className="text-[10px] font-mono text-[#1A2406]/30">Creation transaction pending sync</p>
+                )}
+              </div>
               <p className="text-[9px] font-mono text-[#1A2406]/20 truncate">
                 {onchainData?.freelancer ? `Target: ${onchainData.freelancer}` : "Identity Pending"}
               </p>

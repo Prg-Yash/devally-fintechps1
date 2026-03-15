@@ -47,12 +47,16 @@ const AuthLayout = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     if (!isPending) {
       if (session != null) {
-        router.push('/')
+        if (pathname === '/banned') {
+          setIsChecking(false)
+        } else {
+          router.push('/')
+        }
       } else {
         setIsChecking(false)
       }
     }
-  }, [session, isPending, router])
+  }, [session, isPending, router, pathname])
 
   if (isPending || isChecking) {
     return <Loading />

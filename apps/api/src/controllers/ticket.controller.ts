@@ -1,7 +1,10 @@
 import { Request, Response } from 'express';
 import prisma from '../config/prisma';
+import { notifyUser } from '../config/notification-service';
 
 const ALLOWED_TICKET_STATUSES = ['OPEN', 'IN_REVIEW', 'RESOLVED', 'CLOSED', 'REJECTED'];
+const ALLOWED_TICKET_SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+type TicketSeverity = (typeof ALLOWED_TICKET_SEVERITIES)[number];
 
 export const createTicket = async (req: Request, res: Response) => {
   try {
@@ -9,6 +12,7 @@ export const createTicket = async (req: Request, res: Response) => {
       title,
       description,
       reason,
+      severity,
       evidenceUrl,
       agreementId,
       raisedById,
@@ -20,6 +24,12 @@ export const createTicket = async (req: Request, res: Response) => {
         error: 'title, description, reason, raisedById, and againstUserEmail are required',
       });
     }
+
+    const normalizedSeverity: TicketSeverity = ALLOWED_TICKET_SEVERITIES.includes(
+      String(severity).toUpperCase() as TicketSeverity
+    )
+      ? (String(severity).toUpperCase() as TicketSeverity)
+      : 'LOW';
 
     const normalizedEmail = String(againstUserEmail).trim().toLowerCase();
 
@@ -64,17 +74,42 @@ export const createTicket = async (req: Request, res: Response) => {
         title: String(title).trim(),
         description: String(description).trim(),
         reason: String(reason).trim().toUpperCase(),
+        severity: normalizedSeverity,
         evidenceUrl: evidenceUrl ? String(evidenceUrl).trim() : null,
         agreementId: agreementId || null,
         raisedById,
         againstUserId: againstUser.id,
       },
-      include: {
+      select: {
+        id: true, title: true, description: true, reason: true,
+        status: true, severity: true, evidenceUrl: true,
+        createdAt: true, updatedAt: true,
         raisedBy: { select: { id: true, name: true, email: true } },
         againstUser: { select: { id: true, name: true, email: true } },
         agreement: { select: { id: true, title: true, status: true } },
       },
     });
+
+    await Promise.all([
+      notifyUser({
+        userId: ticket.raisedBy.id,
+        title: 'Ticket created',
+        message: `Your ticket "${ticket.title}" has been submitted with ${ticket.severity} severity.`,
+        type: 'TICKET',
+        entityType: 'ticket',
+        entityId: ticket.id,
+        emailSubject: 'Devally: Ticket submitted',
+      }),
+      notifyUser({
+        userId: ticket.againstUser.id,
+        title: 'Ticket filed against you',
+        message: `A dispute ticket "${ticket.title}" was raised and requires your attention.`,
+        type: 'TICKET',
+        entityType: 'ticket',
+        entityId: ticket.id,
+        emailSubject: 'Devally: New dispute ticket',
+      }),
+    ]);
 
     return res.status(201).json({ message: 'Ticket raised successfully', ticket });
   } catch (error: any) {
@@ -93,7 +128,10 @@ export const getRaisedTickets = async (req: Request, res: Response) => {
 
     const tickets = await prisma.ticket.findMany({
       where: { raisedById: userId },
-      include: {
+      select: {
+        id: true, title: true, description: true, reason: true,
+        status: true, severity: true, evidenceUrl: true,
+        createdAt: true, updatedAt: true,
         raisedBy: { select: { id: true, name: true, email: true } },
         againstUser: { select: { id: true, name: true, email: true } },
         agreement: { select: { id: true, title: true, status: true } },
@@ -118,7 +156,10 @@ export const getReceivedTickets = async (req: Request, res: Response) => {
 
     const tickets = await prisma.ticket.findMany({
       where: { againstUserId: userId },
-      include: {
+      select: {
+        id: true, title: true, description: true, reason: true,
+        status: true, severity: true, evidenceUrl: true,
+        createdAt: true, updatedAt: true,
         raisedBy: { select: { id: true, name: true, email: true } },
         againstUser: { select: { id: true, name: true, email: true } },
         agreement: { select: { id: true, title: true, status: true } },
@@ -144,7 +185,10 @@ export const getTicketById = async (req: Request, res: Response) => {
 
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },
-      include: {
+      select: {
+        id: true, title: true, description: true, reason: true,
+        status: true, severity: true, evidenceUrl: true,
+        createdAt: true, updatedAt: true, raisedById: true, againstUserId: true,
         raisedBy: { select: { id: true, name: true, email: true } },
         againstUser: { select: { id: true, name: true, email: true } },
         agreement: { select: { id: true, title: true, status: true } },
