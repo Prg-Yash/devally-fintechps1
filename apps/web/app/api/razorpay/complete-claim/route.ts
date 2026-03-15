@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { INR_TO_PCC_RATE, mintPccToWallet } from "@/lib/pcc-distributor";
+import { parseUnits } from "viem";
 
 export const runtime = "nodejs";
 
@@ -57,6 +58,17 @@ export async function POST(req: NextRequest) {
     await prisma.purchase.update({
       where: { razorpayOrderId: orderId },
       data: {
+        status: "COMPLETED",
+      },
+    });
+
+    await prisma.withdrawal.create({
+      data: {
+        userId: purchase.userId,
+        walletAddress,
+        amountPcc: pccAmount,
+        amountBaseUnits: parseUnits(pccAmount.toFixed(6), 6).toString(),
+        txHash,
         status: "COMPLETED",
       },
     });

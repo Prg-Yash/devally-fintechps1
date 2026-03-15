@@ -7,6 +7,23 @@ import { sepolia } from "viem/chains";
 const pccAbi = [
   {
     type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "balance", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "transfer",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "success", type: "bool" }],
+  },
+  {
+    type: "function",
     name: "mint",
     stateMutability: "nonpayable",
     inputs: [
@@ -50,7 +67,12 @@ export function getPccContractAddress() {
   return contractAddress;
 }
 
-export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: number) {
+async function runDistributorTransaction(input: {
+  walletAddress: `0x${string}`;
+  pccAmount: number;
+  mode: "mint" | "transfer";
+}) {
+  const { walletAddress, pccAmount, mode } = input;
   const { contractAddress, privateKey, rpcUrl, rpcUrls } = getDistributorConfig();
   if (!contractAddress || !privateKey || (!rpcUrl && rpcUrls.length === 0)) {
     throw new Error(
@@ -64,11 +86,18 @@ export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: n
     );
   }
 
+  if (!Number.isFinite(pccAmount) || pccAmount <= 0) {
+    throw new Error("pccAmount must be greater than zero.");
+  }
+
   const account = privateKeyToAccount(privateKey);
 
   const endpoints = Array.from(new Set([...(rpcUrls.length > 0 ? rpcUrls : []), ...(rpcUrl ? [rpcUrl] : [])]));
   const amount = parseUnits(pccAmount.toFixed(6), 6);
-  console.log("[PCC_MINT] Mint request prepared", {
+  const eventLabel = mode === "mint" ? "PCC_MINT" : "PCC_TRANSFER";
+
+  console.log(`[${eventLabel}] Request prepared`, {
+    mode,
     contractAddress,
     distributorAddress: account.address,
     recipientWalletAddress: walletAddress,
@@ -82,7 +111,8 @@ export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: n
 
   for (const endpoint of endpoints) {
     try {
-      console.log("[PCC_MINT] Attempting endpoint", {
+      console.log(`[${eventLabel}] Attempting endpoint`, {
+        mode,
         endpoint,
         contractAddress,
         recipientWalletAddress: walletAddress,
@@ -106,15 +136,39 @@ export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: n
         transport,
       });
 
-      const txHash = await walletClient.writeContract({
-        address: contractAddress,
-        abi: pccAbi,
-        functionName: "mint",
-        args: [walletAddress, amount],
-      });
+      if (mode === "transfer") {
+        const distributorBalance = await publicClient.readContract({
+          address: contractAddress,
+          abi: pccAbi,
+          functionName: "balanceOf",
+          args: [account.address],
+        });
 
-      console.log("[PCC_MINT] Mint transaction submitted", {
+        if (distributorBalance < amount) {
+          throw new Error(
+            `Distributor wallet has insufficient PCC balance. Required: ${amount.toString()} base units, available: ${distributorBalance.toString()} base units.`,
+          );
+        }
+      }
+
+      const txHash =
+        mode === "mint"
+          ? await walletClient.writeContract({
+            address: contractAddress,
+            abi: pccAbi,
+            functionName: "mint",
+            args: [walletAddress, amount],
+          })
+          : await walletClient.writeContract({
+            address: contractAddress,
+            abi: pccAbi,
+            functionName: "transfer",
+            args: [walletAddress, amount],
+          });
+
+      console.log(`[${eventLabel}] Transaction submitted`, {
         txHash,
+        mode,
         endpoint,
       });
 
@@ -123,8 +177,9 @@ export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: n
         timeout: 90_000,
       });
 
-      console.log("[PCC_MINT] Mint transaction confirmed", {
+      console.log(`[${eventLabel}] Transaction confirmed`, {
         txHash,
+        mode,
         blockNumber: receipt.blockNumber?.toString(),
         status: receipt.status,
         gasUsed: receipt.gasUsed?.toString(),
@@ -133,7 +188,8 @@ export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: n
       return txHash;
     } catch (error) {
       lastError = error;
-      console.error("[PCC_MINT] Endpoint attempt failed", {
+      console.error(`[${eventLabel}] Endpoint attempt failed`, {
+        mode,
         endpoint,
         message: error instanceof Error ? error.message : String(error),
       });
@@ -141,7 +197,23 @@ export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: n
   }
 
   throw new Error(
-    `Mint failed across all configured Sepolia RPC endpoints. Last error: ${lastError instanceof Error ? lastError.message : String(lastError)
+    `${mode === "mint" ? "Mint" : "Transfer"} failed across all configured Sepolia RPC endpoints. Last error: ${lastError instanceof Error ? lastError.message : String(lastError)
     }`,
   );
+}
+
+export async function mintPccToWallet(walletAddress: `0x${string}`, pccAmount: number) {
+  return runDistributorTransaction({
+    walletAddress,
+    pccAmount,
+    mode: "mint",
+  });
+}
+
+export async function transferPccToWallet(walletAddress: `0x${string}`, pccAmount: number) {
+  return runDistributorTransaction({
+    walletAddress,
+    pccAmount,
+    mode: "transfer",
+  });
 }
