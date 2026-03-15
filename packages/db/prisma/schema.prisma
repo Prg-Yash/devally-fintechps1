@@ -31,6 +31,7 @@ model User {
   sessions                Session[]
   ticketsAgainstMe        Ticket[]                 @relation("TicketsAgainstUser")
   raisedTickets           Ticket[]                 @relation("RaisedTickets")
+  milestoneSubmissions    MilestoneSubmission[]
   twofactors              TwoFactor[]
 
   @@map("user")
@@ -187,6 +188,7 @@ model Agreement {
   changeRequests  AgreementChangeRequest[]
   chat_message    chat_message[]
   milestones      Milestone[]
+  submissions     MilestoneSubmission[]
   tickets         Ticket[]
 
   @@index([creatorId])
@@ -248,9 +250,37 @@ model Milestone {
   paidAt       DateTime?
   payoutTxHash String?
   agreement    Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  submissions  MilestoneSubmission[]
 
   @@index([agreementId])
   @@map("milestone")
+}
+
+model MilestoneSubmission {
+  id                     String    @id @default(cuid())
+  agreementId            String
+  milestoneId            String
+  submittedById          String
+  imageUrl               String?
+  supportingLink         String?
+  verificationUrl        String
+  confidenceScore        Int       @default(0)
+  clientDecisionRequired Boolean   @default(true)
+  requirementsMet        String[]  @default([])
+  requirementsMissing    String[]  @default([])
+  perCriterion           Json?
+  summary                String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  agreement              Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  milestone              Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  submittedBy            User      @relation(fields: [submittedById], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@index([milestoneId])
+  @@index([submittedById])
+  @@index([createdAt(sort: Desc)])
+  @@map("milestone_submission")
 }
 
 model chat_message {

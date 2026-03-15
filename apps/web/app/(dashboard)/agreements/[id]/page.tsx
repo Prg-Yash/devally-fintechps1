@@ -22,6 +22,7 @@ import {
   AlertCircle,
   Plus,
   Trash2,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -117,6 +118,28 @@ type MilestoneForm = {
   dueDate: string;
 };
 
+type CriterionResult = {
+  score: number;
+  comment: string;
+};
+
+type MilestoneSubmission = {
+  id: string;
+  agreementId: string;
+  milestoneId: string;
+  submittedById: string;
+  imageUrl: string | null;
+  supportingLink: string | null;
+  verificationUrl: string;
+  confidenceScore: number;
+  clientDecisionRequired: boolean;
+  requirementsMet: string[];
+  requirementsMissing: string[];
+  perCriterion: Record<string, CriterionResult>;
+  summary: string;
+  createdAt: string;
+};
+
 const toDateInput = (value?: string) => {
   if (!value) return "";
   const date = new Date(value);
@@ -162,6 +185,14 @@ export default function AgreementDetailPage() {
   const [editAmount, setEditAmount] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
   const [editMilestones, setEditMilestones] = useState<MilestoneForm[]>([]);
+  const [latestSubmissionsByMilestone, setLatestSubmissionsByMilestone] = useState<
+    Record<string, MilestoneSubmission>
+  >({});
+  const [openSubmissionMilestoneId, setOpenSubmissionMilestoneId] = useState<string | null>(null);
+  const [submissionDrafts, setSubmissionDrafts] = useState<
+    Record<string, { imageUrl: string; supportingLink: string }>
+  >({});
+  const [submittingMilestoneId, setSubmittingMilestoneId] = useState<string | null>(null);
 
   const todayDate = useMemo(() => startOfDay(new Date()), []);
   const todayDateString = useMemo(() => format(todayDate, "yyyy-MM-dd"), [todayDate]);
@@ -225,6 +256,21 @@ export default function AgreementDetailPage() {
     const all = [...incoming, ...outgoing] as Agreement[];
 
     return all.find((a) => a.id === agreementId) || null;
+  };
+
+  const fetchMilestoneSubmissions = async (agreementId: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/agreements/${agreementId}/milestone-submissions`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      setLatestSubmissionsByMilestone(
+        data?.latestByMilestone && typeof data.latestByMilestone === "object" ? data.latestByMilestone : {},
+      );
+    } catch (error) {
+      console.warn("Failed to fetch milestone submissions", error);
+    }
   };
 
   const fetchDetails = async () => {
@@ -312,6 +358,12 @@ export default function AgreementDetailPage() {
       setAgreement(agreementData);
       setApproveWallet(agreementData?.receiverAddress || connectedWalletAddress || "");
       setFundingError((agreementData as any)?.fundingError || null);
+
+      if (agreementData?.id) {
+        await fetchMilestoneSubmissions(agreementData.id);
+      } else {
+        setLatestSubmissionsByMilestone({});
+      }
 
       // 2. Fetch On-chain Data
       if (targetProjectId !== null) {
@@ -858,6 +910,75 @@ export default function AgreementDetailPage() {
     }
   };
 
+  const updateSubmissionDraft = (milestoneId: string, field: "imageUrl" | "supportingLink", value: string) => {
+    setSubmissionDrafts((prev) => ({
+      ...prev,
+      [milestoneId]: {
+        imageUrl: prev[milestoneId]?.imageUrl || "",
+        supportingLink: prev[milestoneId]?.supportingLink || "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleSubmitDeliverable = async (milestone: Milestone) => {
+    if (!agreement || !session?.user?.id) return;
+
+    const draft = submissionDrafts[milestone.id] || { imageUrl: "", supportingLink: "" };
+    if (!draft.imageUrl.trim() && !draft.supportingLink.trim()) {
+      toast.error("Add at least one input: image URL or supporting link");
+      return;
+    }
+
+    try {
+      setSubmittingMilestoneId(milestone.id);
+
+      const res = await fetch(`${API_BASE_URL}/agreements/${agreement.id}/milestone-submissions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          milestoneId: milestone.id,
+          imageUrl: draft.imageUrl.trim() || undefined,
+          supportingLink: draft.supportingLink.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data?.code === "DB_CLIENT_OUTDATED") {
+          throw new Error(
+            "Backend Prisma client is outdated. Run `npx prisma generate` in packages/db and restart apps/web.",
+          );
+        }
+        if (data?.code === "DB_SCHEMA_OUTDATED") {
+          throw new Error(
+            "Database schema is outdated. Run Prisma migration or `npx prisma db push` from packages/db.",
+          );
+        }
+        throw new Error(data?.error || "Failed to submit milestone deliverable");
+      }
+
+      const submission = data?.submission as MilestoneSubmission;
+      if (submission?.milestoneId) {
+        setLatestSubmissionsByMilestone((prev) => ({
+          ...prev,
+          [submission.milestoneId]: submission,
+        }));
+      }
+
+      setSubmissionDrafts((prev) => ({
+        ...prev,
+        [milestone.id]: { imageUrl: "", supportingLink: "" },
+      }));
+
+      toast.success(`Deliverable submitted for \"${milestone.title}\"`);
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to submit deliverable");
+    } finally {
+      setSubmittingMilestoneId(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-[70vh] gap-4">
@@ -1348,7 +1469,7 @@ export default function AgreementDetailPage() {
 
                 <div className="space-y-4">
                   {agreement.milestones && agreement.milestones.length > 0 ? agreement.milestones.map((ms, idx) => (
-                    <div key={ms.id} className="group relative p-6 rounded-[28px] bg-white border border-[#1A2406]/5 hover:border-[#D9F24F] transition-all duration-500">
+                    <div key={ms.id} className="group relative p-6 rounded-[28px] bg-white border border-[#1A2406]/5 hover:border-[#D9F24F] transition-all duration-500 space-y-5">
                       <div className="flex items-start justify-between gap-6">
                         <div className="flex gap-6">
                           <div className="text-[10px] font-black text-[#1A2406]/10 mt-1">0{idx + 1}</div>
@@ -1387,6 +1508,183 @@ export default function AgreementDetailPage() {
                           )}
                         </div>
                       </div>
+
+                      {(() => {
+                        const latestSubmission = latestSubmissionsByMilestone[ms.id];
+                        const draft = submissionDrafts[ms.id] || { imageUrl: "", supportingLink: "" };
+                        const isSubmissionOpen = openSubmissionMilestoneId === ms.id;
+                        const canFreelancerSubmit = isFreelancerUser && isPublished;
+                        const canViewerSeeVerification = isCreatorUser || isFreelancerUser;
+
+                        return (
+                          <div className="space-y-4 border-t border-[#1A2406]/5 pt-4">
+                            {canFreelancerSubmit && (
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-[11px] font-medium text-[#1A2406]/60">
+                                  Submit milestone evidence for AI verification.
+                                </p>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setOpenSubmissionMilestoneId(isSubmissionOpen ? null : ms.id)}
+                                  className="h-8 text-[10px] uppercase tracking-widest"
+                                >
+                                  {isSubmissionOpen ? "Close Submission" : "Submit Deliverable"}
+                                </Button>
+                              </div>
+                            )}
+
+                            {canFreelancerSubmit && isSubmissionOpen && (
+                              <div className="rounded-2xl border border-[#1A2406]/10 bg-[#1A2406]/[0.02] p-4 space-y-3">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">
+                                  Deliverable Inputs (at least one required)
+                                </p>
+
+                                <div className="space-y-2">
+                                  <Label className="text-xs">Image URL (AWS)</Label>
+                                  <Input
+                                    type="url"
+                                    value={draft.imageUrl}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                      updateSubmissionDraft(ms.id, "imageUrl", e.target.value)
+                                    }
+                                    placeholder="https://..."
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label className="text-xs">Supporting Link</Label>
+                                  <Input
+                                    type="url"
+                                    value={draft.supportingLink}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                      updateSubmissionDraft(ms.id, "supportingLink", e.target.value)
+                                    }
+                                    placeholder="https://github.com/... or live demo URL"
+                                  />
+                                </div>
+
+                                <Button
+                                  onClick={() => handleSubmitDeliverable(ms)}
+                                  disabled={submittingMilestoneId === ms.id}
+                                  className="w-full"
+                                >
+                                  {submittingMilestoneId === ms.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    "Run Verification & Save"
+                                  )}
+                                </Button>
+                              </div>
+                            )}
+
+                            {canViewerSeeVerification && latestSubmission && (
+                              <div className="rounded-2xl border border-[#1A2406]/10 bg-[#1A2406]/[0.02] p-4 space-y-4">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">
+                                    Latest AI Verification
+                                  </p>
+                                  <Badge variant="outline" className="rounded-full bg-[#D9F24F] text-[#1A2406] border-none text-[10px] font-black">
+                                    Confidence: {latestSubmission.confidenceScore}%
+                                  </Badge>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-[#1A2406]/70">
+                                  <div className="space-y-1">
+                                    <p className="font-bold text-[#1A2406]">Milestone Spec (client requirement)</p>
+                                    <p>{ms.description || ms.title}</p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="font-bold text-[#1A2406]">Freelancer Inputs</p>
+                                    {latestSubmission.imageUrl && (
+                                      <a
+                                        href={latestSubmission.imageUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-[#1A2406] underline"
+                                      >
+                                        <Link2 className="w-3.5 h-3.5" /> Image Evidence
+                                      </a>
+                                    )}
+                                    {latestSubmission.supportingLink && (
+                                      <a
+                                        href={latestSubmission.supportingLink}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-[#1A2406] underline"
+                                      >
+                                        <Link2 className="w-3.5 h-3.5" /> Supporting Link
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {latestSubmission.summary && (
+                                  <div className="space-y-1">
+                                    <p className="text-xs font-bold text-[#1A2406]">Summary</p>
+                                    <p className="text-xs text-[#1A2406]/70">{latestSubmission.summary}</p>
+                                  </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <div className="rounded-xl bg-white border border-[#1A2406]/10 p-3">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40 mb-2">
+                                      Requirements Met
+                                    </p>
+                                    {latestSubmission.requirementsMet.length ? (
+                                      latestSubmission.requirementsMet.map((entry, index) => (
+                                        <p key={`${ms.id}-met-${index}`} className="text-xs text-[#1A2406]/70">
+                                          - {entry}
+                                        </p>
+                                      ))
+                                    ) : (
+                                      <p className="text-xs text-[#1A2406]/40">No explicit matches reported.</p>
+                                    )}
+                                  </div>
+
+                                  <div className="rounded-xl bg-white border border-[#1A2406]/10 p-3">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40 mb-2">
+                                      Requirements Missing
+                                    </p>
+                                    {latestSubmission.requirementsMissing.length ? (
+                                      latestSubmission.requirementsMissing.map((entry, index) => (
+                                        <p key={`${ms.id}-miss-${index}`} className="text-xs text-[#1A2406]/70">
+                                          - {entry}
+                                        </p>
+                                      ))
+                                    ) : (
+                                      <p className="text-xs text-[#1A2406]/40">No missing requirements reported.</p>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {latestSubmission.perCriterion &&
+                                  Object.keys(latestSubmission.perCriterion).length > 0 && (
+                                    <div className="rounded-xl bg-white border border-[#1A2406]/10 p-3 space-y-2">
+                                      <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">
+                                        Criterion Breakdown
+                                      </p>
+                                      {Object.entries(latestSubmission.perCriterion).map(([key, value]) => (
+                                        <div key={`${ms.id}-criterion-${key}`} className="text-xs text-[#1A2406]/70">
+                                          <span className="font-semibold text-[#1A2406]">{key}</span>: {value?.score ?? 0}/25
+                                          {value?.comment ? ` - ${value.comment}` : ""}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                              </div>
+                            )}
+
+                            {canViewerSeeVerification && !latestSubmission && (
+                              <div className="rounded-2xl border border-dashed border-[#1A2406]/15 bg-[#1A2406]/[0.02] p-4">
+                                <p className="text-xs text-[#1A2406]/50">
+                                  No deliverable submission found yet for this milestone.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )) : (
                     <div className="p-8 rounded-[28px] bg-[#1A2406]/[0.02] border border-dashed border-[#1A2406]/10 text-center">
