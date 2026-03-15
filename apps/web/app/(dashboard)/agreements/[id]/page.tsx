@@ -53,6 +53,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { markMilestonePaidAction } from "./actions";
 import { format, isAfter, isBefore, isValid, parseISO, startOfDay } from "date-fns";
+import { formatDisplayCurrency, useDisplayCurrencyPreference } from "@/lib/display-currency";
 
 type WorkflowEvent =
   | "DRAFT_UPDATED"
@@ -193,6 +194,7 @@ export default function AgreementDetailPage() {
     Record<string, { imageUrl: string; supportingLink: string }>
   >({});
   const [submittingMilestoneId, setSubmittingMilestoneId] = useState<string | null>(null);
+  const displayCurrency = useDisplayCurrencyPreference("INR");
 
   const todayDate = useMemo(() => startOfDay(new Date()), []);
   const todayDateString = useMemo(() => format(todayDate, "yyyy-MM-dd"), [todayDate]);
@@ -1018,6 +1020,9 @@ export default function AgreementDetailPage() {
   const bTotal = onchainData ? BigInt(onchainData.amount) : BigInt(0);
   const bPaid = onchainData ? BigInt(onchainData.releasedAmount) : BigInt(0);
   const remaining = bTotal - bPaid;
+  const totalDisplayAmount = Number(formatPusdAmount(bTotal).replace(/,/g, ""));
+  const paidDisplayAmount = Number(formatPusdAmount(bPaid).replace(/,/g, ""));
+  const remainingDisplayAmount = Number(formatPusdAmount(remaining).replace(/,/g, ""));
   const isCreatorUser = Boolean(session?.user?.id && agreement?.creator?.id && session.user.id === agreement.creator.id);
   const isFreelancerUser = Boolean(session?.user?.id && agreement?.receiver?.id && session.user.id === agreement.receiver.id);
   const walletMatchesOnchainClient = Boolean(
@@ -1481,7 +1486,7 @@ export default function AgreementDetailPage() {
                             <div className="flex items-center gap-6">
                               <div className="flex items-center gap-2">
                                 <DollarSign className="w-3.5 h-3.5 text-[#1A2406]/20" />
-                                <span className="text-sm font-bold text-[#1A2406]">{ms.amount} <span className="text-[10px] text-[#1A2406]/30 uppercase">PUSD</span></span>
+                                <span className="text-sm font-bold text-[#1A2406]">{formatDisplayCurrency(Number(ms.amount || 0), displayCurrency)}</span>
                               </div>
                               {ms.dueDate && (
                                 <div className="flex items-center gap-2">
@@ -1744,19 +1749,19 @@ export default function AgreementDetailPage() {
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <p className="text-[40px] font-jakarta font-bold tracking-tighter leading-none">
-                      {formatPusdAmount(remaining)}
+                      {formatDisplayCurrency(remainingDisplayAmount, displayCurrency)}
                     </p>
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#D9F24F]">Available in Vault</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
                     <div>
-                      <p className="text-[8px] font-bold uppercase tracking-widest text-white/20 mb-1">Total PUSD</p>
-                      <p className="text-sm font-bold text-white/80">{formatPusdAmount(bTotal)}</p>
+                      <p className="text-[8px] font-bold uppercase tracking-widest text-white/20 mb-1">Total {displayCurrency}</p>
+                      <p className="text-sm font-bold text-white/80">{formatDisplayCurrency(totalDisplayAmount, displayCurrency)}</p>
                     </div>
                     <div>
                       <p className="text-[8px] font-bold uppercase tracking-widest text-white/20 mb-1">Paid Out</p>
-                      <p className="text-sm font-bold text-[#D9F24F]">-{formatPusdAmount(bPaid)}</p>
+                      <p className="text-sm font-bold text-[#D9F24F]">-{formatDisplayCurrency(paidDisplayAmount, displayCurrency)}</p>
                     </div>
                   </div>
                 </div>

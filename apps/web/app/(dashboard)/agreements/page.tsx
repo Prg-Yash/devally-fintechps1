@@ -57,6 +57,7 @@ import {
   type OnchainProject,
 } from "@/lib/escrow";
 import { thirdwebClient } from "@/lib/thirdweb-client";
+import { formatDisplayCurrency, useDisplayCurrencyPreference } from "@/lib/display-currency";
 
 // ─── Animation Variants ───
 const SPRING = { type: "spring" as const, stiffness: 300, damping: 30 };
@@ -134,6 +135,7 @@ export default function AgreementsPage() {
 
   const [fundedProjects, setFundedProjects] = useState<OnchainProject[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const displayCurrency = useDisplayCurrencyPreference("INR");
 
   const hasLoadedAgreementsRef = useRef(false);
   const lastFetchedUserIdRef = useRef<string | null>(null);
@@ -352,12 +354,9 @@ export default function AgreementsPage() {
         ? projectsById.get(Number(agreement.projectId))
         : undefined;
 
-    const linkedTotal = linkedProtocol ? formatPusdAmount(BigInt(linkedProtocol.amount)) : null;
-    const linkedPaid = linkedProtocol ? formatPusdAmount(BigInt(linkedProtocol.releasedAmount)) : null;
-    const linkedRemaining =
-      linkedProtocol
-        ? formatPusdAmount(BigInt(linkedProtocol.amount) - BigInt(linkedProtocol.releasedAmount))
-        : null;
+    const linkedTotal = linkedProtocol ? Number(formatPusdAmount(BigInt(linkedProtocol.amount)).replace(/,/g, "")) : null;
+    const linkedPaid = linkedProtocol ? Number(formatPusdAmount(BigInt(linkedProtocol.releasedAmount)).replace(/,/g, "")) : null;
+    const linkedRemaining = linkedTotal !== null && linkedPaid !== null ? linkedTotal - linkedPaid : null;
     const firstMilestone = agreement.milestones?.[0] || null;
 
     return (
@@ -401,7 +400,7 @@ export default function AgreementsPage() {
                     Linked Protocol: PID-{linkedProtocol.projectId.toString()}
                   </p>
                   <p className="text-[10px] text-[#1A2406]/70">
-                    Vault {linkedTotal} PUSD | Paid {linkedPaid} PUSD | Available {linkedRemaining} PUSD
+                    Vault {formatDisplayCurrency(linkedTotal ?? 0, displayCurrency)} | Paid {formatDisplayCurrency(linkedPaid ?? 0, displayCurrency)} | Available {formatDisplayCurrency(linkedRemaining ?? 0, displayCurrency)}
                   </p>
                 </div>
               ) : (
@@ -426,7 +425,7 @@ export default function AgreementsPage() {
               <div className="rounded-xl bg-slate-50/50 p-3 border border-black/[0.02]">
                 <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none mb-1.5">Full Budget</p>
                 <p className="text-lg font-bold text-[#1A2406]">
-                  {agreement.amount} <span className="text-[10px] text-[#1A2406]/40 uppercase">{agreement.currency}</span>
+                  {formatDisplayCurrency(Number(agreement.amount || 0), displayCurrency)}
                 </p>
               </div>
               <div className="rounded-xl bg-slate-50/50 p-3 border border-black/[0.02]">
@@ -476,26 +475,21 @@ export default function AgreementsPage() {
     );
   };
 
-  const allAgreements = useMemo(() => {
-    const byId = new Map<string, Agreement>();
-    for (const agreement of [...outgoingAgreements, ...incomingAgreements]) {
-      byId.set(agreement.id, agreement);
-    }
-
-    return Array.from(byId.values()).sort((a, b) => {
+  const sortedIncomingAgreements = useMemo(() => {
+    return [...incomingAgreements].sort((a, b) => {
       const aTime = new Date(a.createdAt).getTime();
       const bTime = new Date(b.createdAt).getTime();
       return bTime - aTime;
     });
-  }, [incomingAgreements, outgoingAgreements]);
+  }, [incomingAgreements]);
 
-  const allAgreementsWithType = useMemo(() => {
-    const userId = session?.user?.id;
-    return allAgreements.map((agreement) => ({
-      agreement,
-      type: agreement.creator.id === userId ? "outgoing" : "incoming" as "outgoing" | "incoming",
-    }));
-  }, [allAgreements, session?.user?.id]);
+  const sortedOutgoingAgreements = useMemo(() => {
+    return [...outgoingAgreements].sort((a, b) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return bTime - aTime;
+    });
+  }, [outgoingAgreements]);
 
   return (
     <motion.div
@@ -530,21 +524,27 @@ export default function AgreementsPage() {
         </Link>
       </motion.div>
 
-      {/* ── Unified Agreements Section ── */}
+      {/* ── Incoming Agreements Section ── */}
       <motion.div variants={maskedReveal} className="space-y-8">
         <div className="px-1 flex items-center justify-between gap-3">
           <h2 className="font-jakarta text-xl font-bold tracking-tight text-[#1A2406] flex items-center gap-2 mb-1">
             <FileText className="w-5 h-5 font-bold" />
-            Agreements
+            Incoming Agreements
           </h2>
           <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest border-none">
-            {allAgreements.length} total
+            {sortedIncomingAgreements.length} freelancer view
           </Badge>
+        </div>
+
+        <div className="px-1 -mt-4">
+          <p className="text-xs text-[#1A2406]/55">
+            Agreements where you are the assigned freelancer and receive work from a hiring client.
+          </p>
         </div>
 
         <AnimatePresence mode="wait">
           <motion.div
-            key="all-agreements"
+            key="incoming-agreements"
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -10 }}
@@ -554,14 +554,59 @@ export default function AgreementsPage() {
               <div className="flex flex-col items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 animate-spin text-[#1A2406]/10" />
               </div>
-            ) : allAgreements.length === 0 ? (
+            ) : sortedIncomingAgreements.length === 0 ? (
               <div className="bg-white/40 backdrop-blur-md border border-dashed border-[#1A2406]/5 rounded-[32px] p-20 text-center">
-                <p className="text-sm text-[#1A2406]/30 font-medium italic">No agreements recorded for this account.</p>
+                <p className="text-sm text-[#1A2406]/30 font-medium italic">No incoming agreements for your freelancer profile yet.</p>
               </div>
             ) : (
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {allAgreementsWithType.map(({ agreement, type }) => (
-                  <AgreementCard key={agreement.id} agreement={agreement} type={type} />
+                {sortedIncomingAgreements.map((agreement) => (
+                  <AgreementCard key={agreement.id} agreement={agreement} type="incoming" />
+                ))}
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </motion.div>
+
+      {/* ── Outgoing Agreements Section ── */}
+      <motion.div variants={maskedReveal} className="space-y-8">
+        <div className="px-1 flex items-center justify-between gap-3">
+          <h2 className="font-jakarta text-xl font-bold tracking-tight text-[#1A2406] flex items-center gap-2 mb-1">
+            <FileText className="w-5 h-5 font-bold" />
+            Outgoing Agreements
+          </h2>
+          <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest border-none">
+            {sortedOutgoingAgreements.length} client view
+          </Badge>
+        </div>
+
+        <div className="px-1 -mt-4">
+          <p className="text-xs text-[#1A2406]/55">
+            Agreements created by you as the client and sent to service providers.
+          </p>
+        </div>
+
+        <AnimatePresence mode="wait">
+          <motion.div
+            key="outgoing-agreements"
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -10 }}
+            transition={{ duration: 0.3 }}
+          >
+            {isLoading || isLoadingProjects ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 animate-spin text-[#1A2406]/10" />
+              </div>
+            ) : sortedOutgoingAgreements.length === 0 ? (
+              <div className="bg-white/40 backdrop-blur-md border border-dashed border-[#1A2406]/5 rounded-[32px] p-20 text-center">
+                <p className="text-sm text-[#1A2406]/30 font-medium italic">No outgoing agreements created by you yet.</p>
+              </div>
+            ) : (
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {sortedOutgoingAgreements.map((agreement) => (
+                  <AgreementCard key={agreement.id} agreement={agreement} type="outgoing" />
                 ))}
               </div>
             )}

@@ -4,7 +4,6 @@ import { parseUnits } from "viem";
 
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { transferPccToWallet } from "@/lib/pcc-distributor";
 
 export const runtime = "nodejs";
 
@@ -12,19 +11,17 @@ const INR_TO_PCC_RATE = Number(
   process.env.INR_TO_PCC_RATE ?? process.env.NEXT_PUBLIC_INR_TO_PCC_RATE ?? "1",
 );
 
-const CLAIMABLE_PURCHASE_STATUSES = ["PAYMENT_VERIFIED", "CLAIMABLE"] as const;
+const FUNDING_PURCHASE_STATUSES = ["PAYMENT_VERIFIED", "CLAIMABLE", "COMPLETED"] as const;
 const WITHDRAW_COMPLETED_STATUS = "COMPLETED";
 const WITHDRAW_DECIMALS = 6;
-const WITHDRAW_EPSILON = 1 / 10 ** WITHDRAW_DECIMALS;
+const SIM_BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+const INTERNAL_TOKEN_POOL = "PUSD_LEDGER_POOL";
+const INTERNAL_SETTLEMENT_ACCOUNT = "INR_SETTLEMENT_SIM";
 
 type ClaimablePurchase = {
   id: string;
   amount: number;
 };
-
-function isWalletAddress(value: string): value is `0x${string}` {
-  return /^0x[a-fA-F0-9]{40}$/.test(value);
-}
 
 function roundPcc(value: number) {
   return Number(value.toFixed(WITHDRAW_DECIMALS));
@@ -49,7 +46,7 @@ async function getClaimablePurchases(userId: string) {
     where: {
       userId,
       status: {
-        in: [...CLAIMABLE_PURCHASE_STATUSES],
+        in: [...FUNDING_PURCHASE_STATUSES],
       },
     },
     select: {
@@ -60,6 +57,50 @@ async function getClaimablePurchases(userId: string) {
       createdAt: "asc",
     },
   });
+}
+
+function toInrFromPcc(pccAmount: number) {
+  if (!Number.isFinite(pccAmount)) return 0;
+  if (INR_TO_PCC_RATE <= 0) return roundPcc(pccAmount);
+  return roundPcc(pccAmount / INR_TO_PCC_RATE);
+}
+
+function createSimulationTxHash() {
+  const ts = Date.now().toString(16).padStart(12, "0");
+  const rnd = Math.random().toString(16).slice(2).padEnd(52, "0").slice(0, 52);
+  return `0x${ts}${rnd}`;
+}
+
+function computeStats(withdrawals: Array<{ amountPcc: number; status: string; createdAt: Date | string }>) {
+  const completed = withdrawals.filter((w) => w.status === WITHDRAW_COMPLETED_STATUS);
+  const totalWithdrawnPcc = roundPcc(completed.reduce((sum, w) => sum + Number(w.amountPcc || 0), 0));
+  const totalWithdrawnInr = toInrFromPcc(totalWithdrawnPcc);
+
+  const averageWithdrawalInr = completed.length > 0 ? Number((totalWithdrawnInr / completed.length).toFixed(2)) : 0;
+  const largestWithdrawalInr = completed.length > 0
+    ? Math.max(...completed.map((w) => toInrFromPcc(Number(w.amountPcc || 0))))
+    : 0;
+
+  const now = new Date();
+  const thisMonthCompleted = completed.filter((w) => {
+    const d = new Date(w.createdAt);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+  const thisMonthWithdrawnInr = Number(
+    thisMonthCompleted
+      .reduce((sum, w) => sum + toInrFromPcc(Number(w.amountPcc || 0)), 0)
+      .toFixed(2),
+  );
+
+  return {
+    completedCount: completed.length,
+    totalWithdrawnPcc,
+    totalWithdrawnInr,
+    averageWithdrawalInr,
+    largestWithdrawalInr,
+    thisMonthWithdrawnInr,
+    thisMonthWithdrawalCount: thisMonthCompleted.length,
+  };
 }
 
 export async function GET() {
@@ -77,21 +118,33 @@ export async function GET() {
       getClaimablePurchases(userId),
     ]);
 
-    const claimablePcc = getClaimablePcc(claimablePurchases);
-    const completedWithdrawals = withdrawals.filter(
-      (withdrawal) => withdrawal.status === WITHDRAW_COMPLETED_STATUS,
-    );
-    const totalWithdrawnPcc = roundPcc(
-      completedWithdrawals.reduce((sum, withdrawal) => sum + withdrawal.amountPcc, 0),
-    );
+    const purchasedPcc = getClaimablePcc(claimablePurchases);
+    const stats = computeStats(withdrawals as any);
+    const claimablePcc = roundPcc(Math.max(0, purchasedPcc - stats.totalWithdrawnPcc));
+    const claimableInr = toInrFromPcc(claimablePcc);
+
+    const normalizedWithdrawals = withdrawals.map((w) => ({
+      ...w,
+      fromAddress: INTERNAL_TOKEN_POOL,
+      burnAddress: SIM_BURN_ADDRESS,
+      toWalletAddress: INTERNAL_SETTLEMENT_ACCOUNT,
+      toUserAccount: w.userId,
+      amountInr: toInrFromPcc(Number(w.amountPcc || 0)),
+    }));
 
     return NextResponse.json({
-      withdrawals,
+      withdrawals: normalizedWithdrawals,
       summary: {
         claimablePcc,
-        totalWithdrawnPcc,
+        claimableInr,
+        totalWithdrawnPcc: stats.totalWithdrawnPcc,
+        totalWithdrawnInr: stats.totalWithdrawnInr,
+        averageWithdrawalInr: stats.averageWithdrawalInr,
+        largestWithdrawalInr: stats.largestWithdrawalInr,
+        thisMonthWithdrawnInr: stats.thisMonthWithdrawnInr,
+        thisMonthWithdrawalCount: stats.thisMonthWithdrawalCount,
         conversionRate: INR_TO_PCC_RATE,
-        completedCount: completedWithdrawals.length,
+        completedCount: stats.completedCount,
         pendingCount: withdrawals.filter((withdrawal) => withdrawal.status === "PENDING").length,
         failedCount: withdrawals.filter((withdrawal) => withdrawal.status === "FAILED").length,
       },
@@ -112,21 +165,18 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const walletAddressRaw =
-      typeof body?.walletAddress === "string" ? body.walletAddress.trim() : "";
     const requestedAmountRaw = body?.amountPcc;
 
-    if (!walletAddressRaw || !isWalletAddress(walletAddressRaw)) {
-      return NextResponse.json(
-        { error: "A valid walletAddress is required." },
-        { status: 400 },
-      );
-    }
-
     const claimablePurchases = await getClaimablePurchases(userId);
-    const claimablePcc = getClaimablePcc(claimablePurchases);
+    const previousWithdrawals = await prisma.withdrawal.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    const purchasedPcc = getClaimablePcc(claimablePurchases);
+    const stats = computeStats(previousWithdrawals as any);
+    const claimablePcc = roundPcc(Math.max(0, purchasedPcc - stats.totalWithdrawnPcc));
 
-    if (claimablePcc <= 0 || claimablePurchases.length === 0) {
+    if (claimablePcc <= 0) {
       return NextResponse.json(
         { error: "No claimable PCC balance available for withdrawal." },
         { status: 400 },
@@ -149,12 +199,10 @@ export async function POST(req: NextRequest) {
 
     const amountPcc = roundPcc(parsedAmount);
 
-    // We only allow full claimable withdrawals to keep purchase accounting exact.
-    if (Math.abs(amountPcc - claimablePcc) > WITHDRAW_EPSILON) {
+    if (amountPcc > claimablePcc) {
       return NextResponse.json(
         {
-          error:
-            "For now, please withdraw the full claimable balance shown on screen to keep order accounting consistent.",
+          error: "Requested amount exceeds claimable balance.",
           claimablePcc,
         },
         { status: 400 },
@@ -166,7 +214,7 @@ export async function POST(req: NextRequest) {
     const pendingWithdrawal = await prisma.withdrawal.create({
       data: {
         userId,
-        walletAddress: walletAddressRaw,
+        walletAddress: INTERNAL_SETTLEMENT_ACCOUNT,
         amountPcc,
         amountBaseUnits,
         status: "PENDING",
@@ -174,20 +222,9 @@ export async function POST(req: NextRequest) {
     });
 
     try {
-      const txHash = await transferPccToWallet(walletAddressRaw, amountPcc);
+      const txHash = createSimulationTxHash();
 
       const completedWithdrawal = await prisma.$transaction(async (tx) => {
-        await tx.purchase.updateMany({
-          where: {
-            id: {
-              in: claimablePurchases.map((purchase) => purchase.id),
-            },
-          },
-          data: {
-            status: WITHDRAW_COMPLETED_STATUS,
-          },
-        });
-
         return tx.withdrawal.update({
           where: { id: pendingWithdrawal.id },
           data: {
@@ -199,8 +236,15 @@ export async function POST(req: NextRequest) {
       });
 
       return NextResponse.json({
-        message: "Withdrawal completed successfully.",
-        withdrawal: completedWithdrawal,
+        message: "Withdrawal simulation completed successfully.",
+        withdrawal: {
+          ...completedWithdrawal,
+          fromAddress: INTERNAL_TOKEN_POOL,
+          burnAddress: SIM_BURN_ADDRESS,
+          toWalletAddress: INTERNAL_SETTLEMENT_ACCOUNT,
+          toUserAccount: completedWithdrawal.userId,
+          amountInr: toInrFromPcc(Number(completedWithdrawal.amountPcc || 0)),
+        },
       });
     } catch (error: any) {
       const failureReason = String(error?.message || "Token transfer failed").slice(0, 1000);
