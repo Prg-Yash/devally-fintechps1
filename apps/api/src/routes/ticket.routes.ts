@@ -2,6 +2,7 @@ import { Router } from 'express';
 import express from 'express';
 import {
   createTicket,
+  createTicketByEmail,
   getRaisedTickets,
   getReceivedTickets,
   getTicketById,
@@ -11,6 +12,7 @@ import {
 const router = Router();
 
 router.post('/', express.json(), createTicket);
+router.post('/by-email', express.json(), createTicketByEmail);
 router.get('/raised', getRaisedTickets);
 router.get('/received', getReceivedTickets);
 router.get('/:ticketId', getTicketById);
