@@ -174,7 +174,7 @@ export const AICoPilotPopup = () => {
   };
 
   return (
-    <div className="fixed bottom-8 right-8 z-[100] flex flex-col items-end">
+    <div className="fixed bottom-6 right-6 md:bottom-8 md:right-8 z-[100] flex flex-col items-end">
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -184,7 +184,7 @@ export const AICoPilotPopup = () => {
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             className="mb-6"
           >
-            <Card className="w-[400px] h-[600px] border-0 bg-white shadow-[0_32px_64px_-16px_rgba(26,36,6,0.2)] rounded-[40px] flex flex-col overflow-hidden">
+            <Card className="w-[460px] max-w-[94vw] h-[700px] max-h-[84vh] border-0 bg-white shadow-[0_32px_64px_-16px_rgba(26,36,6,0.2)] rounded-[40px] flex flex-col overflow-hidden">
               {/* Header */}
               <CardHeader className="p-6 bg-[#1A2406] text-white flex-row items-center gap-3 space-y-0 shrink-0">
                 <div className="w-10 h-10 rounded-2xl bg-[#D9F24F] flex items-center justify-center shadow-lg shadow-[#D9F24F]/10">
@@ -326,39 +326,51 @@ export const AICoPilotPopup = () => {
                                   )}
 
                                 {/* PCC Balance UI Block */}
-                                {hasResult && toolName === "get_pcc_balance" && (
-                                  <div className="mt-1 space-y-2">
-                                    {result?.success === false && result?.action !== "RENDER_UI_BUTTON" && (
-                                      <div className="text-red-700 font-medium">
-                                        {result?.error || result?.message || "Could not fetch PCC balance."}
-                                      </div>
-                                    )}
+                                {hasResult &&
+                                  toolName === "get_pcc_balance" && (
+                                    <div className="mt-1 space-y-2">
+                                      {result?.success === false &&
+                                        result?.action !==
+                                          "RENDER_UI_BUTTON" && (
+                                          <div className="text-red-700 font-medium">
+                                            {result?.error ||
+                                              result?.message ||
+                                              "Could not fetch PCC balance."}
+                                          </div>
+                                        )}
 
-                                    {result?.success && (
-                                      <div className="p-3 rounded-xl border border-blue-200 bg-white text-[#1A2406]">
-                                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40 mb-2">
-                                          PCC Balance
-                                        </p>
-                                        <div className="text-xl font-black leading-none">
-                                          {result?.balance_pcc} PCC
+                                      {result?.success && (
+                                        <div className="p-3 rounded-xl border border-blue-200 bg-white text-[#1A2406]">
+                                          <p className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40 mb-2">
+                                            PCC Balance
+                                          </p>
+                                          <div className="text-xl font-black leading-none">
+                                            {result?.balance_pcc} PCC
+                                          </div>
+                                          <p className="text-[11px] text-[#1A2406]/60 mt-2">
+                                            Wallet:{" "}
+                                            {result?.walletAddress?.slice?.(
+                                              0,
+                                              6,
+                                            )}
+                                            ...
+                                            {result?.walletAddress?.slice?.(-4)}
+                                          </p>
+                                          {!!result?.contract_address && (
+                                            <p className="text-[10px] text-[#1A2406]/50 mt-1 break-all">
+                                              Contract:{" "}
+                                              {result.contract_address}
+                                            </p>
+                                          )}
+                                          {!!result?.hint && (
+                                            <p className="text-[11px] text-amber-700 mt-2">
+                                              {result.hint}
+                                            </p>
+                                          )}
                                         </div>
-                                        <p className="text-[11px] text-[#1A2406]/60 mt-2">
-                                          Wallet: {result?.walletAddress?.slice?.(0, 6)}...{result?.walletAddress?.slice?.(-4)}
-                                        </p>
-                                        {!!result?.contract_address && (
-                                          <p className="text-[10px] text-[#1A2406]/50 mt-1 break-all">
-                                            Contract: {result.contract_address}
-                                          </p>
-                                        )}
-                                        {!!result?.hint && (
-                                          <p className="text-[11px] text-amber-700 mt-2">
-                                            {result.hint}
-                                          </p>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                      )}
+                                    </div>
+                                  )}
 
                                 {/* Agreements List UI Block */}
                                 {hasResult &&
@@ -440,7 +452,8 @@ export const AICoPilotPopup = () => {
                                         Action Required
                                       </p>
                                       <p className="text-xs font-medium text-[#1A2406]/80 mb-4">
-                                        Please connect your wallet to check PCC balance.
+                                        Please connect your wallet to check PCC
+                                        balance.
                                       </p>
                                       <div className="w-full relative nexus-wallet-connect-wrapper">
                                         <ConnectButton
@@ -464,17 +477,23 @@ export const AICoPilotPopup = () => {
                                         Action Required
                                       </p>
                                       <p className="text-xs font-medium text-[#1A2406]/80 mb-2">
-                                        Open Buy PCC to convert INR to PCC using Razorpay.
+                                        Open Buy PCC to convert INR to PCC using
+                                        Razorpay.
                                       </p>
-                                      {typeof result?.props?.amount_inr === "number" && (
+                                      {typeof result?.props?.amount_inr ===
+                                        "number" && (
                                         <p className="text-[11px] text-[#1A2406]/70 mb-3">
-                                          Preview: ₹{result.props.amount_inr} at rate {result?.props?.conversion_rate} ≈ {result?.props?.estimated_pcc} PCC
+                                          Preview: ₹{result.props.amount_inr} at
+                                          rate {result?.props?.conversion_rate}{" "}
+                                          ≈ {result?.props?.estimated_pcc} PCC
                                         </p>
                                       )}
                                       <Button
                                         onClick={() => {
                                           setIsOpen(false);
-                                          router.push(result?.props?.route || "/buy-pcc");
+                                          router.push(
+                                            result?.props?.route || "/buy-pcc",
+                                          );
                                         }}
                                         className="w-full h-10 rounded-xl bg-[#D9F24F] text-[#1A2406] font-jakarta font-bold text-xs hover:bg-[#c4db47]"
                                       >
@@ -684,7 +703,7 @@ export const AICoPilotPopup = () => {
         whileHover={{ scale: 1.05, y: -2 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all duration-500
+        className={`w-[72px] h-[72px] rounded-full flex items-center justify-center shadow-2xl transition-all duration-500
           ${
             isOpen
               ? "bg-[#1A2406] text-[#D9F24F] rotate-90 shadow-[#1A2406]/20"
@@ -692,9 +711,9 @@ export const AICoPilotPopup = () => {
           }`}
       >
         {isOpen ? (
-          <X className="w-7 h-7" />
+          <X className="w-8 h-8" />
         ) : (
-          <MessageSquare className="w-7 h-7" />
+          <MessageSquare className="w-8 h-8" />
         )}
       </motion.button>
     </div>
