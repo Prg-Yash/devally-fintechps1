@@ -27,6 +27,7 @@ model User {
   notifications           Notification[]
   passkeys                Passkey[]
   purchases               Purchase[]
+  withdrawals             Withdrawal[]
   sessions                Session[]
   ticketsAgainstMe        Ticket[]                 @relation("TicketsAgainstUser")
   raisedTickets           Ticket[]                 @relation("RaisedTickets")
@@ -126,6 +127,25 @@ model Purchase {
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("purchase")
+}
+
+model Withdrawal {
+  id              String   @id @default(cuid())
+  userId          String
+  walletAddress   String
+  amountPcc       Float
+  amountBaseUnits String
+  txHash          String?  @unique
+  status          String   @default("PENDING")
+  failureReason   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status])
+  @@index([walletAddress])
+  @@map("withdrawal")
 }
 
 model Notification {

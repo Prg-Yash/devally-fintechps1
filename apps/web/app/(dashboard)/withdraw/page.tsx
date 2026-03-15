@@ -1,21 +1,60 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import {
   ArrowDownLeft,
   CheckCircle2,
-  XCircle,
-  Clock,
-  ArrowUpRight,
-  Download,
-  Search,
-  Filter,
+  Clock3,
+  Coins,
   ExternalLink,
-  Server,
+  Loader2,
+  Search,
+  Wallet,
+  XCircle,
 } from "lucide-react";
+import { toast } from "sonner";
+import { authClient } from "@/lib/auth-client";
+import { useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
+import { thirdwebClient } from "@/lib/thirdweb-client";
+import { formatPccBaseUnits, getPccBalance } from "@/lib/paycrow-coin";
 
-// ─── Animation Variants ──────────────────────────────────────────────────────
+const API_BASE_URL = "/api";
+const SEPOLIA_TX_BASE_URL = "https://sepolia.etherscan.io/tx/";
+
+type WithdrawStatus = "PENDING" | "COMPLETED" | "FAILED";
+
+type WithdrawalEntry = {
+  id: string;
+  userId: string;
+  walletAddress: string;
+  amountPcc: number;
+  amountBaseUnits: string;
+  txHash: string | null;
+  status: WithdrawStatus | string;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type WithdrawalSummary = {
+  claimablePcc: number;
+  totalWithdrawnPcc: number;
+  conversionRate: number;
+  completedCount: number;
+  pendingCount: number;
+  failedCount: number;
+};
+
+const EMPTY_SUMMARY: WithdrawalSummary = {
+  claimablePcc: 0,
+  totalWithdrawnPcc: 0,
+  conversionRate: 1,
+  completedCount: 0,
+  pendingCount: 0,
+  failedCount: 0,
+};
+
 const stagger = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
@@ -30,93 +69,220 @@ const reveal = {
   },
 };
 
-// ─── Static Stat Cards data ───────────────────────────────────────────────────
-const STAT_CARDS = [
-  { label: "Total Withdrawn",   value: "₹1,24,380.00" },
-  { label: "Active Protocols",  value: "13",            dark: true },
-  { label: "Live PCC Balance",  value: "3,595 PCC" },
-  { label: "Awaiting Proof",    value: "3" },
-  { label: "Total Nodes PCC",   value: "3,595 PCC" },
-  { label: "Completed Txns",    value: "9" },
-];
-
-// ─── Static Staking Nodes ────────────────────────────────────────────────────
-const NODES = [
-  { id: "n1", name: "Main Trading Node",  address: "0x7A59…3F92", pcc: "1,820 PCC", liquidity: "₹29,001.00", currency: "USDC", primary: true  },
-  { id: "n2", name: "Savings Vault",      address: "0x3B12…9A41", pcc: "970 PCC",   liquidity: "₹1,00,000.00", currency: "USDC", primary: false },
-  { id: "n3", name: "Growth Escrow",      address: "0x9C88…1D05", pcc: "805 PCC",   liquidity: "₹641.50",    currency: "USDT", primary: false },
-];
-
-// ─── Static Transactions ─────────────────────────────────────────────────────
-type TxStatus = "completed" | "pending" | "failed";
-
-interface Tx {
-  id: string;
-  walletName: string;
-  pcc: string;
-  inr: string;
-  txHash: string;
-  date: string;
-  status: TxStatus;
+function formatPcc(value: number) {
+  return value.toLocaleString("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  });
 }
 
-const ALL_TXS: Tx[] = [
-  { id: "WD-0001", walletName: "Main Trading Node",  pcc: "2,400 PCC", inr: "₹6,240.00",  txHash: "0xa1b2c3d4…1f2e", date: "Mar 14, 2026", status: "completed" },
-  { id: "WD-0002", walletName: "Savings Vault",      pcc: "800 PCC",   inr: "₹2,080.00",  txHash: "0xde3f2a1b…9c4d", date: "Mar 12, 2026", status: "pending"   },
-  { id: "WD-0003", walletName: "Growth Escrow",      pcc: "3,100 PCC", inr: "₹8,060.00",  txHash: "0x5f8a1c2e…b3a2", date: "Mar 10, 2026", status: "completed" },
-  { id: "WD-0004", walletName: "Main Trading Node",  pcc: "500 PCC",   inr: "₹1,300.00",  txHash: "0x7e9d0f3c…4a1b", date: "Mar 07, 2026", status: "failed"    },
-  { id: "WD-0005", walletName: "Savings Vault",      pcc: "1,200 PCC", inr: "₹3,120.00",  txHash: "0x2c4e6a8b…f0d1", date: "Mar 05, 2026", status: "completed" },
-  { id: "WD-0006", walletName: "Growth Escrow",      pcc: "4,750 PCC", inr: "₹12,350.00", txHash: "0xb3d5f7a9…e2c0", date: "Feb 28, 2026", status: "completed" },
-  { id: "WD-0007", walletName: "Main Trading Node",  pcc: "300 PCC",   inr: "₹780.00",    txHash: "0x1a3c5e7f…9b8d", date: "Feb 25, 2026", status: "pending"   },
-  { id: "WD-0008", walletName: "Savings Vault",      pcc: "2,000 PCC", inr: "₹5,200.00",  txHash: "0x8f0e1d2c…3a4b", date: "Feb 20, 2026", status: "completed" },
-  { id: "WD-0009", walletName: "Growth Escrow",      pcc: "650 PCC",   inr: "₹1,690.00",  txHash: "0x4b6d8f0a…c2e1", date: "Feb 15, 2026", status: "failed"    },
-  { id: "WD-0010", walletName: "Main Trading Node",  pcc: "3,900 PCC", inr: "₹10,140.00", txHash: "0xc9e0f1a2…b3d4", date: "Feb 10, 2026", status: "completed" },
-  { id: "WD-0011", walletName: "Savings Vault",      pcc: "1,050 PCC", inr: "₹2,730.00",  txHash: "0x6d8f0e1b…2c3a", date: "Feb 06, 2026", status: "completed" },
-  { id: "WD-0012", walletName: "Growth Escrow",      pcc: "420 PCC",   inr: "₹1,092.00",  txHash: "0xe2f4a6b8…0d1c", date: "Jan 30, 2026", status: "pending"   },
-];
+function shortAddress(value: string) {
+  if (value.length < 12) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
 
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-const StatusBadge = ({ status }: { status: TxStatus }) => {
-  const cfg = {
-    completed: { label: "COMPLETED", Icon: CheckCircle2, cls: "bg-[#1A2406] text-white" },
-    pending:   { label: "PENDING",   Icon: Clock,        cls: "bg-white border border-black/[0.05] text-[#CA8A04]" },
-    failed:    { label: "FAILED",    Icon: XCircle,      cls: "bg-white border border-black/[0.05] text-red-500" },
-  }[status];
-  return (
-    <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[8px] font-extrabold tracking-[0.18em] uppercase ${cfg.cls}`}>
-      <cfg.Icon className="w-2.5 h-2.5" />
-      {cfg.label}
-    </div>
-  );
+function shortHash(value: string) {
+  if (value.length < 14) return value;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function normalizePccInput(value: number) {
+  const fixed = value.toFixed(6);
+  return fixed.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+}
+
+const STATUS_STYLE: Record<
+  WithdrawStatus,
+  { label: string; className: string; Icon: React.ComponentType<{ className?: string }> }
+> = {
+  COMPLETED: {
+    label: "Completed",
+    className: "bg-[#1A2406] text-white",
+    Icon: CheckCircle2,
+  },
+  PENDING: {
+    label: "Pending",
+    className: "bg-white border border-black/[0.05] text-[#CA8A04]",
+    Icon: Clock3,
+  },
+  FAILED: {
+    label: "Failed",
+    className: "bg-white border border-black/[0.05] text-red-500",
+    Icon: XCircle,
+  },
 };
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function WithdrawPage() {
-  const [search,  setSearch]  = useState("");
-  const [filter,  setFilter]  = useState<"all" | TxStatus>("all");
-  const [filterOpen, setFilterOpen] = useState(false);
+  const { data: session } = authClient.useSession();
+  const activeAccount = useActiveAccount();
+  const activeWallet = useActiveWallet();
+  const adminWallet = useAdminWallet();
 
-  const filtered = ALL_TXS.filter((tx) => {
-    const okStatus = filter === "all" || tx.status === filter;
-    const q = search.toLowerCase();
-    const okSearch = !q || tx.id.toLowerCase().includes(q) || tx.walletName.toLowerCase().includes(q) || tx.txHash.toLowerCase().includes(q);
-    return okStatus && okSearch;
-  });
+  const adminAccount = activeWallet?.getAdminAccount?.() || adminWallet?.getAccount?.();
+  const connectedWalletAddress = adminAccount?.address || activeAccount?.address || "";
+
+  const [withdrawals, setWithdrawals] = useState<WithdrawalEntry[]>([]);
+  const [summary, setSummary] = useState<WithdrawalSummary>(EMPTY_SUMMARY);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [walletBalance, setWalletBalance] = useState("0");
+
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | WithdrawStatus>("all");
+
+  const parsedWithdrawAmount = Number(withdrawAmount);
+  const canWithdraw =
+    Boolean(connectedWalletAddress) &&
+    summary.claimablePcc > 0 &&
+    Number.isFinite(parsedWithdrawAmount) &&
+    Math.abs(parsedWithdrawAmount - summary.claimablePcc) <= 0.000001;
+
+  const filteredWithdrawals = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return withdrawals.filter((item) => {
+      const statusOk = statusFilter === "all" || item.status.toUpperCase() === statusFilter;
+      if (!statusOk) return false;
+
+      if (!query) return true;
+
+      return (
+        item.id.toLowerCase().includes(query) ||
+        item.walletAddress.toLowerCase().includes(query) ||
+        (item.txHash ?? "").toLowerCase().includes(query)
+      );
+    });
+  }, [withdrawals, statusFilter, search]);
+
+  const loadHistory = async () => {
+    if (!session?.user?.id) return;
+
+    try {
+      setIsLoadingHistory(true);
+      const response = await fetch(`${API_BASE_URL}/withdrawals`, { cache: "no-store" });
+      const data = (await response.json().catch(() => ({}))) as {
+        withdrawals?: WithdrawalEntry[];
+        summary?: Partial<WithdrawalSummary>;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to load withdrawal history");
+      }
+
+      const nextSummary: WithdrawalSummary = {
+        claimablePcc: Number(data.summary?.claimablePcc ?? 0),
+        totalWithdrawnPcc: Number(data.summary?.totalWithdrawnPcc ?? 0),
+        conversionRate: Number(data.summary?.conversionRate ?? 1),
+        completedCount: Number(data.summary?.completedCount ?? 0),
+        pendingCount: Number(data.summary?.pendingCount ?? 0),
+        failedCount: Number(data.summary?.failedCount ?? 0),
+      };
+
+      setWithdrawals(Array.isArray(data.withdrawals) ? data.withdrawals : []);
+      setSummary(nextSummary);
+      setWithdrawAmount(nextSummary.claimablePcc > 0 ? normalizePccInput(nextSummary.claimablePcc) : "");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to load withdrawals");
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  const loadWalletBalance = async () => {
+    if (!connectedWalletAddress) {
+      setWalletBalance("0");
+      return;
+    }
+
+    try {
+      setIsLoadingBalance(true);
+      const balance = await getPccBalance(thirdwebClient, connectedWalletAddress);
+      setWalletBalance(formatPccBaseUnits(balance));
+    } catch (error) {
+      console.error("Failed to load wallet balance", error);
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    loadWalletBalance();
+  }, [connectedWalletAddress]);
+
+  const handleWithdraw = async () => {
+    if (!session?.user?.id) {
+      toast.error("Please log in to withdraw PCC.");
+      return;
+    }
+
+    if (!connectedWalletAddress) {
+      toast.error("Connect your wallet before withdrawing.");
+      return;
+    }
+
+    if (!canWithdraw) {
+      toast.error(`Enter exact claimable amount: ${formatPcc(summary.claimablePcc)} PCC`);
+      return;
+    }
+
+    try {
+      setIsWithdrawing(true);
+
+      const response = await fetch(`${API_BASE_URL}/withdrawals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: connectedWalletAddress,
+          amountPcc: parsedWithdrawAmount,
+        }),
+      });
+
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        withdrawal?: WithdrawalEntry;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "Withdrawal failed");
+      }
+
+      const txHash = data.withdrawal?.txHash;
+      if (txHash) {
+        toast.success(`Withdrawal successful. Tx ${shortHash(txHash)}`);
+      } else {
+        toast.success("Withdrawal successful.");
+      }
+
+      window.dispatchEvent(new CustomEvent("pcc:purchase-completed"));
+      await Promise.all([loadHistory(), loadWalletBalance()]);
+    } catch (error: any) {
+      toast.error(error?.message || "Withdrawal failed");
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
 
   return (
     <motion.div
       variants={stagger}
       initial="hidden"
       animate="visible"
-      className="mx-auto max-w-6xl space-y-8 pt-2 pb-12"
+      className="mx-auto max-w-6xl space-y-8 pt-2 pb-10"
     >
-      {/* ── Header ── */}
-      <motion.div variants={reveal} className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-2">
+      <motion.div variants={reveal} className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
         <div className="space-y-1">
           <div className="flex items-center gap-2 mb-2">
             <span className="bg-[#D9F24F]/10 text-[#1A2406] text-[10px] font-bold tracking-widest px-2.5 py-1 rounded-full border border-[#D9F24F]/20 flex items-center gap-1.5 uppercase leading-none">
               <div className="w-1.5 h-1.5 rounded-full bg-[#D9F24F] animate-pulse" />
-              PCC Withdraw Ledger
+              PCC Withdrawal Center
             </span>
           </div>
           <h1 className="font-jakarta text-4xl tracking-[-0.04em] text-[#1A2406]">
@@ -124,241 +290,179 @@ export default function WithdrawPage() {
             <span className="font-bold">History</span>
           </h1>
           <p className="font-sans text-[#1A2406]/30 text-sm font-medium">
-            All PCC withdrawal records across every staking node
+            Withdraw verified PCC to your connected wallet and track every payout.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <motion.button
-            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-            className="rounded-xl border border-black/[0.04] bg-white text-[#1A2406] px-5 py-2.5 text-xs font-bold tracking-tight hover:bg-[#FAFAF9] transition-all flex items-center gap-2 shadow-sm"
-          >
-            <Download className="w-4 h-4" /> Export CSV
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-            className="rounded-xl bg-[#1A2406] text-white px-5 py-2.5 text-xs font-bold tracking-tight flex items-center gap-2 shadow-lg shadow-[#1A2406]/10"
-          >
-            <ArrowDownLeft className="w-4 h-4" /> Initiate Withdrawal
-          </motion.button>
-        </div>
+
+        <button
+          type="button"
+          onClick={handleWithdraw}
+          disabled={!canWithdraw || isWithdrawing}
+          className="rounded-xl bg-[#1A2406] text-white px-5 py-2.5 text-xs font-bold tracking-tight flex items-center gap-2 shadow-lg shadow-[#1A2406]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isWithdrawing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowDownLeft className="w-4 h-4" />}
+          {isWithdrawing ? "Processing..." : "Withdraw to Connected Wallet"}
+        </button>
       </motion.div>
 
-      {/* ── 3×2 Stat Widgets ── */}
-      <div className="grid grid-cols-3 gap-4">
-        {STAT_CARDS.map((card) => (
-          <motion.div
-            key={card.label}
-            variants={reveal}
-            className={`relative rounded-2xl px-5 py-4 overflow-hidden
-              ${card.dark
-                ? "bg-[#1A2406] text-white shadow-[0_12px_30px_rgba(26,36,6,0.18)] border border-white/5"
-                : "bg-white/50 backdrop-blur-xl border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]"
-              }`}
-          >
-            {card.dark && (
-              <>
-                <div className="absolute inset-0 bg-gradient-to-tr from-[#D9F24F]/10 via-transparent to-transparent pointer-events-none" />
-                <div className="absolute -top-8 -right-8 w-24 h-24 bg-[#D9F24F]/15 blur-[50px] rounded-full pointer-events-none" />
-              </>
-            )}
-            <p className={`text-[9px] font-bold tracking-[0.18em] uppercase mb-2 relative z-10 ${card.dark ? "text-white/40" : "text-[#1A2406]/35"}`}>
-              {card.label}
-            </p>
-            <p className={`font-jakarta text-2xl font-bold tracking-[-0.03em] relative z-10 leading-none ${card.dark ? "text-[#D9F24F]" : "text-[#1A2406]"}`}>
-              {card.value}
-            </p>
-          </motion.div>
-        ))}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Claimable PCC</p>
+          <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatPcc(summary.claimablePcc)}</p>
+        </motion.div>
+
+        <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-[#1A2406] text-white border border-white/5 shadow-[0_12px_30px_rgba(26,36,6,0.18)]">
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-white/40 mb-2">Wallet PCC Balance</p>
+          <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#D9F24F]">
+            {isLoadingBalance ? "Loading" : formatPcc(Number(walletBalance || "0"))}
+          </p>
+        </motion.div>
+
+        <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Total Withdrawn</p>
+          <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#1A2406]">{formatPcc(summary.totalWithdrawnPcc)}</p>
+        </motion.div>
+
+        <motion.div variants={reveal} className="rounded-2xl px-5 py-4 bg-white/60 border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
+          <p className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#1A2406]/35 mb-2">Completed Withdrawals</p>
+          <p className="font-jakarta text-2xl font-bold tracking-[-0.03em] text-[#1A2406]">{summary.completedCount}</p>
+        </motion.div>
       </div>
 
-      {/* ── Integrated Staking Nodes ── */}
-      <motion.div variants={stagger} className="space-y-5">
-        <div className="flex items-center justify-between">
-          <h2 className="font-jakarta text-xl font-bold tracking-[-0.04em] text-[#1A2406]">
-            Integrated Staking Nodes
-          </h2>
-          <button className="text-[10px] font-bold tracking-[0.2em] uppercase text-[#1A2406]/30 hover:text-[#1A2406] transition-all flex items-center gap-1.5 active:scale-95">
-            Node Registry <ArrowUpRight className="w-3.5 h-3.5" />
+      <motion.div variants={reveal} className="rounded-2xl border border-[#e5ddce] bg-white p-5 shadow-sm space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-xs font-bold tracking-[0.16em] uppercase text-[#1A2406]/40">Withdraw Setup</p>
+            <p className="text-sm text-[#1A2406]/60 mt-1">Withdrawals currently process the full claimable PCC balance per request.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setWithdrawAmount(normalizePccInput(summary.claimablePcc))}
+            className="rounded-lg border border-[#d9d0bf] px-3 py-1.5 text-xs font-semibold text-[#1A2406]"
+          >
+            Use Max
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          {NODES.map((node) => (
-            <motion.div
-              key={node.id}
-              variants={reveal}
-              whileHover={{ scale: 1.01, transition: { type: "spring", stiffness: 300, damping: 30 } }}
-              className={`relative rounded-2xl px-5 py-4 overflow-hidden transition-all duration-200
-                ${node.primary
-                  ? "bg-[#1A2406] text-white shadow-[0_12px_30px_rgba(26,36,6,0.18)] border border-white/5"
-                  : "bg-white/50 backdrop-blur-xl border border-white/70 shadow-[0_4px_20px_rgb(0,0,0,0.02)]"
-                }`}
-            >
-              {node.primary && (
-                <>
-                  <div className="absolute inset-0 bg-gradient-to-tr from-[#D9F24F]/10 via-transparent to-transparent pointer-events-none" />
-                  <div className="absolute -top-8 -right-8 w-24 h-24 bg-[#D9F24F]/15 blur-[50px] rounded-full pointer-events-none" />
-                </>
-              )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label className="block">
+            <span className="text-xs font-semibold text-[#1A2406]/60">Amount (PCC)</span>
+            <input
+              value={withdrawAmount}
+              onChange={(event) => setWithdrawAmount(event.target.value)}
+              className="mt-2 w-full rounded-xl border border-[#d9d0bf] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#D9F24F]/40"
+              placeholder="0"
+              inputMode="decimal"
+            />
+          </label>
 
-              {/* Card name row */}
-              <div className={`flex items-center justify-between mb-2 relative z-10`}>
-                <p className={`text-[9px] font-bold tracking-[0.18em] uppercase ${node.primary ? "text-white/40" : "text-[#1A2406]/35"}`}>
-                  {node.name}
-                </p>
-                {node.primary && (
-                  <span className="text-[8px] font-bold uppercase tracking-[0.12em] text-[#1A2406] bg-[#D9F24F] px-2 py-0.5 rounded-full leading-none">
-                    Primary
-                  </span>
-                )}
-              </div>
-
-              {/* PCC value */}
-              <p className={`font-jakarta text-2xl font-bold tracking-[-0.03em] relative z-10 leading-none ${node.primary ? "text-[#D9F24F]" : "text-[#1A2406]"}`}>
-                {node.pcc}
-              </p>
-
-              {/* Address + liquidity */}
-              <div className={`flex items-center justify-between mt-2.5 relative z-10`}>
-                <p className={`font-mono text-[9px] tracking-[0.06em] ${node.primary ? "text-white/25" : "text-[#1A2406]/25"}`}>
-                  {node.address}
-                </p>
-                <p className={`text-[9px] font-bold ${node.primary ? "text-white/30" : "text-[#1A2406]/30"}`}>
-                  {node.liquidity} <span className="opacity-60">{node.currency}</span>
-                </p>
-              </div>
-            </motion.div>
-          ))}
+          <div className="rounded-xl border border-[#d9d0bf] bg-[#fcfbf8] px-3 py-2.5">
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-[#1A2406]/40">Destination Wallet</p>
+            <p className="mt-2 flex items-center gap-2 text-sm font-semibold text-[#1A2406] break-all">
+              <Wallet className="w-4 h-4 text-[#1A2406]/40" />
+              {connectedWalletAddress || "Connect wallet to enable withdraw"}
+            </p>
+          </div>
         </div>
+
+        {!canWithdraw && summary.claimablePcc > 0 ? (
+          <p className="text-xs text-[#8f1f2f]">Amount must equal full claimable balance: {formatPcc(summary.claimablePcc)} PCC.</p>
+        ) : null}
       </motion.div>
 
-      {/* ── Historical Settlement Ledger ── */}
       <div className="space-y-5">
         <motion.div variants={reveal} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <h2 className="font-jakarta text-xl font-bold tracking-[-0.04em] text-[#1A2406]">
-            Historical Settlement Ledger
-          </h2>
+          <h2 className="font-jakarta text-xl font-bold tracking-[-0.04em] text-[#1A2406]">Withdrawal Ledger</h2>
 
-          {/* Search & Filter */}
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#1A2406]/25" />
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by ID, wallet, hash…"
-                className="pl-9 pr-4 py-2.5 text-xs font-medium bg-white/60 border border-black/[0.04] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D9F24F]/40 focus:border-[#D9F24F]/40 w-52 placeholder:text-[#1A2406]/20 text-[#1A2406]"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by wallet or tx hash"
+                className="pl-9 pr-4 py-2.5 text-xs font-medium bg-white/60 border border-black/[0.04] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D9F24F]/40 w-56"
               />
             </div>
 
-            <div className="relative">
-              <button
-                onClick={() => setFilterOpen(!filterOpen)}
-                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white/60 border border-black/[0.04] rounded-xl text-xs font-bold text-[#1A2406]/40 hover:text-[#1A2406] transition-all"
-              >
-                <Filter className="w-3.5 h-3.5" />
-                {filter === "all" ? "All" : filter.charAt(0).toUpperCase() + filter.slice(1)}
-              </button>
-              <AnimatePresence>
-                {filterOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 6, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
-                    transition={{ duration: 0.16 }}
-                    className="absolute right-0 top-full mt-2 bg-white border border-black/[0.04] rounded-2xl shadow-xl shadow-black/5 overflow-hidden z-20 w-36"
-                  >
-                    {(["all", "completed", "pending", "failed"] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => { setFilter(s); setFilterOpen(false); }}
-                        className={`w-full text-left px-4 py-2.5 text-xs font-bold capitalize transition-colors ${filter === s ? "bg-[#1A2406] text-white" : "text-[#1A2406]/50 hover:bg-[#1A2406]/5 hover:text-[#1A2406]"}`}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as "all" | WithdrawStatus)}
+              className="px-3 py-2.5 text-xs font-bold bg-white/60 border border-black/[0.04] rounded-xl text-[#1A2406]/70"
+            >
+              <option value="all">All</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="PENDING">Pending</option>
+              <option value="FAILED">Failed</option>
+            </select>
           </div>
         </motion.div>
 
-        {/* Transaction rows */}
         <div className="space-y-2.5">
-          <AnimatePresence mode="popLayout">
-            {filtered.length === 0 ? (
-              <motion.div
-                key="empty"
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="bg-white/40 backdrop-blur-md border border-dashed border-[#1A2406]/5 rounded-[28px] p-16 text-center"
-              >
-                <p className="font-jakarta text-xl font-bold text-[#1A2406]/30 tracking-[-0.03em]">No records match your filter.</p>
-              </motion.div>
-            ) : filtered.map((tx) => (
-              <motion.div
-                key={tx.id}
-                layout
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                whileHover={{ x: 3, backgroundColor: "rgba(255,255,255,0.92)" }}
-                transition={{ type: "spring", stiffness: 260, damping: 28 }}
-                className="bg-white/60 backdrop-blur-md border border-black/[0.02] px-5 py-4 rounded-[20px] flex flex-col md:flex-row md:items-center justify-between shadow-[0_2px_12px_rgb(0,0,0,0.01)] gap-4 group"
-              >
-                {/* Left */}
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                    tx.status === "completed" ? "bg-[#16A34A]/6 text-[#16A34A]" :
-                    tx.status === "pending"   ? "bg-[#CA8A04]/6 text-[#CA8A04]" :
-                                               "bg-red-500/6 text-red-500"
-                  }`}>
-                    {tx.status === "completed" ? <CheckCircle2 className="w-4.5 h-4.5" /> :
-                     tx.status === "pending"   ? <Clock        className="w-4.5 h-4.5" /> :
-                                                 <XCircle      className="w-4.5 h-4.5" />}
-                  </div>
-                  <div className="space-y-0.5 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-jakarta font-bold text-[#1A2406] text-base tracking-tight">{tx.pcc}</p>
-                      <span className="text-[9px] font-bold tracking-[0.15em] uppercase text-[#1A2406]/20">≈ {tx.inr}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[9px] font-bold tracking-widest uppercase text-[#1A2406]/20 flex-wrap">
-                      <span className="font-mono">{tx.id}</span>
-                      <span className="opacity-30">/</span>
-                      <span className="font-mono">{tx.txHash}</span>
-                      <span className="opacity-30">/</span>
-                      <span className="text-[#1A2406]/30">{tx.walletName}</span>
-                      <span className="opacity-30">•</span>
-                      <span className="font-sans italic">{tx.date}</span>
-                    </div>
-                  </div>
-                </div>
+          {isLoadingHistory ? (
+            <div className="bg-white/50 border border-[#ece6d9] rounded-2xl p-8 text-center text-sm text-[#526157]">
+              Loading withdrawal history...
+            </div>
+          ) : null}
 
-                {/* Right */}
-                <div className="flex items-center gap-3 shrink-0">
-                  <StatusBadge status={tx.status} />
-                  <div className="flex items-center gap-1">
-                    <button className="p-2 border border-black/[0.04] rounded-lg hover:bg-black/[0.02] transition-colors">
-                      <ExternalLink className="w-3.5 h-3.5 text-[#1A2406]/25 hover:text-[#1A2406]/50 transition-colors" />
-                    </button>
-                    <button className="p-2 border border-black/[0.04] rounded-lg hover:bg-black/[0.02] transition-colors">
-                      <Server className="w-3.5 h-3.5 text-[#1A2406]/25 hover:text-[#1A2406]/50 transition-colors" />
-                    </button>
+          {!isLoadingHistory && filteredWithdrawals.length === 0 ? (
+            <div className="bg-white/40 border border-dashed border-[#1A2406]/10 rounded-2xl p-10 text-center">
+              <p className="font-jakarta text-lg font-bold text-[#1A2406]/40 tracking-tight">No withdrawals found.</p>
+            </div>
+          ) : null}
+
+          {!isLoadingHistory
+            ? filteredWithdrawals.map((entry) => {
+              const normalizedStatus = (entry.status.toUpperCase() as WithdrawStatus) || "PENDING";
+              const statusCfg = STATUS_STYLE[normalizedStatus] ?? STATUS_STYLE.PENDING;
+
+              return (
+                <motion.div
+                  key={entry.id}
+                  layout
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white/70 border border-black/[0.03] rounded-2xl px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <p className="font-jakarta font-bold text-[#1A2406] text-base tracking-tight flex items-center gap-2 flex-wrap">
+                      <Coins className="w-4 h-4 text-[#1A2406]/50" />
+                      {formatPcc(entry.amountPcc)} PCC
+                    </p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#1A2406]/35 break-all">
+                      Wallet: {shortAddress(entry.walletAddress)}
+                    </p>
+                    <p className="text-[11px] text-[#1A2406]/35">
+                      {new Date(entry.createdAt).toLocaleString("en-IN")}
+                    </p>
+                    {entry.failureReason ? (
+                      <p className="text-xs text-red-600">{entry.failureReason}</p>
+                    ) : null}
                   </div>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+
+                  <div className="flex items-center gap-2 flex-wrap md:justify-end">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-extrabold tracking-[0.16em] uppercase ${statusCfg.className}`}>
+                      <statusCfg.Icon className="w-3 h-3" />
+                      {statusCfg.label}
+                    </span>
+
+                    {entry.txHash ? (
+                      <a
+                        href={`${SEPOLIA_TX_BASE_URL}${entry.txHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-black/[0.08] px-2.5 py-1.5 text-xs font-semibold text-[#1A2406]/70 hover:text-[#1A2406]"
+                      >
+                        {shortHash(entry.txHash)}
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    ) : null}
+                  </div>
+                </motion.div>
+              );
+            })
+            : null}
         </div>
-
-        {filtered.length > 0 && (
-          <motion.p
-            variants={reveal}
-            className="text-center text-[10px] font-bold tracking-[0.2em] uppercase text-[#1A2406]/20 pt-1"
-          >
-            Showing {filtered.length} of {ALL_TXS.length} records
-          </motion.p>
-        )}
       </div>
     </motion.div>
   );
