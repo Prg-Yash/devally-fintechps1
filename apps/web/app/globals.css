@@ -47,3 +47,37 @@ html.lenis, html.lenis body {
 .lenis.lenis-smooth iframe {
   pointer-events: none;
 }
+
+#google_translate_element {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.skiptranslate,
+.goog-te-banner-frame.skiptranslate,
+.goog-te-gadget-icon,
+.goog-logo-link,
+.goog-te-gadget > span,
+.goog-te-gadget-simple,
+.goog-te-combo,
+.VIpgJd-ZVi9od-ORHb-OEVmcd,
+.VIpgJd-ZVi9od-l4eHX-hSRGPd,
+.VIpgJd-ZVi9od-aZ2wEe-wOHMyf,
+iframe.goog-te-banner-frame {
+  display: none !important;
+}
+
+body {
+  top: 0 !important;
+}
+
+.goog-te-gadget {
+  color: transparent !important;
+  font-size: 0 !important;
+}
