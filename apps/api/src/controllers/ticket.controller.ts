@@ -118,6 +118,138 @@ export const createTicket = async (req: Request, res: Response) => {
   }
 };
 
+export const createTicketByEmail = async (req: Request, res: Response) => {
+  try {
+    const {
+      title,
+      description,
+      reason,
+      severity,
+      evidenceUrl,
+      agreementId,
+      raisedByEmail,
+      againstUserEmail,
+    } = req.body;
+
+    if (!title || !description || !reason || !raisedByEmail || !againstUserEmail) {
+      return res.status(400).json({
+        error: 'title, description, reason, raisedByEmail, and againstUserEmail are required',
+      });
+    }
+
+    const normalizedRaisedByEmail = String(raisedByEmail).trim().toLowerCase();
+    const normalizedAgainstEmail = String(againstUserEmail).trim().toLowerCase();
+
+    const [raisedBy, againstUser] = await Promise.all([
+      prisma.user.findFirst({
+        where: {
+          email: {
+            equals: normalizedRaisedByEmail,
+            mode: 'insensitive',
+          },
+        },
+        select: { id: true, name: true, email: true },
+      }),
+      prisma.user.findFirst({
+        where: {
+          email: {
+            equals: normalizedAgainstEmail,
+            mode: 'insensitive',
+          },
+        },
+        select: { id: true, name: true, email: true },
+      }),
+    ]);
+
+    if (!raisedBy) {
+      return res.status(404).json({ error: `Raised-by user not found with email: ${normalizedRaisedByEmail}` });
+    }
+
+    if (!againstUser) {
+      return res.status(404).json({ error: `Against user not found with email: ${normalizedAgainstEmail}` });
+    }
+
+    if (raisedBy.id === againstUser.id) {
+      return res.status(400).json({ error: 'You cannot raise a ticket against yourself' });
+    }
+
+    if (agreementId) {
+      const agreement = await prisma.agreement.findUnique({
+        where: { id: agreementId },
+        select: { id: true, creatorId: true, receiverId: true },
+      });
+
+      if (!agreement) {
+        return res.status(404).json({ error: 'Agreement not found' });
+      }
+
+      const participants = [agreement.creatorId, agreement.receiverId];
+      if (!participants.includes(raisedBy.id) || !participants.includes(againstUser.id)) {
+        return res.status(403).json({
+          error: 'For an agreement-linked ticket, both users must be part of that agreement',
+        });
+      }
+    }
+
+    const normalizedSeverity: TicketSeverity = ALLOWED_TICKET_SEVERITIES.includes(
+      String(severity).toUpperCase() as TicketSeverity
+    )
+      ? (String(severity).toUpperCase() as TicketSeverity)
+      : 'LOW';
+
+    // Intentionally no duplicate-ticket check: always creates a fresh ticket.
+    const ticket = await prisma.ticket.create({
+      data: {
+        title: String(title).trim(),
+        description: String(description).trim(),
+        reason: String(reason).trim().toUpperCase(),
+        severity: normalizedSeverity,
+        evidenceUrl: evidenceUrl ? String(evidenceUrl).trim() : null,
+        agreementId: agreementId || null,
+        raisedById: raisedBy.id,
+        againstUserId: againstUser.id,
+      },
+      select: {
+        id: true, title: true, description: true, reason: true,
+        status: true, severity: true, evidenceUrl: true,
+        createdAt: true, updatedAt: true,
+        raisedBy: { select: { id: true, name: true, email: true } },
+        againstUser: { select: { id: true, name: true, email: true } },
+        agreement: { select: { id: true, title: true, status: true } },
+      },
+    });
+
+    await Promise.all([
+      notifyUser({
+        userId: ticket.raisedBy.id,
+        title: 'Ticket created',
+        message: `Your ticket "${ticket.title}" has been submitted with ${ticket.severity} severity.`,
+        type: 'TICKET',
+        entityType: 'ticket',
+        entityId: ticket.id,
+        emailSubject: 'Devally: Ticket submitted',
+      }),
+      notifyUser({
+        userId: ticket.againstUser.id,
+        title: 'Ticket filed against you',
+        message: `A dispute ticket "${ticket.title}" was raised and requires your attention.`,
+        type: 'TICKET',
+        entityType: 'ticket',
+        entityId: ticket.id,
+        emailSubject: 'Devally: New dispute ticket',
+      }),
+    ]);
+
+    return res.status(201).json({
+      message: 'Ticket raised successfully (email route)',
+      ticket,
+    });
+  } catch (error: any) {
+    console.error('Error creating ticket by email:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
 export const getRaisedTickets = async (req: Request, res: Response) => {
   try {
     const userId = req.query.userId as string;

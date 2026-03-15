@@ -24,6 +24,31 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "hi", label: "Hindi" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+] as const;
+
+const LANGUAGE_STORAGE_KEY = "devally_lang_pref";
+
+const setGoogTransCookie = (languageCode: string) => {
+  const cookieValue = `/auto/${languageCode}`;
+  document.cookie = `googtrans=${cookieValue};path=/`;
+};
+
+const applyLanguage = (languageCode: string) => {
+  setGoogTransCookie(languageCode);
+
+  const combo = document.querySelector(".goog-te-combo") as HTMLSelectElement | null;
+  if (!combo) return;
+
+  combo.value = languageCode;
+  combo.dispatchEvent(new Event("change"));
+};
+
 // Functional Tab Components
 import ProfileUpdateTab from './ProfileUpdateTab';
 import { TwoFactorAuth } from './TwoFactorAuth';
@@ -94,10 +119,30 @@ export default function ProfileClientView({
 }) {
   const [activeTab, setActiveTab] = useState("security");
   const [isMounted, setIsMounted] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("en");
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
+
+    const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY) || "en";
+    setSelectedLanguage(saved);
+
+    // Google widget loads asynchronously; retry a few times to apply saved language.
+    const attempts = [250, 600, 1100, 1800];
+    attempts.forEach((delay) => {
+      window.setTimeout(() => applyLanguage(saved), delay);
+    });
+  }, [isMounted]);
+
+  const handleLanguageChange = (languageCode: string) => {
+    setSelectedLanguage(languageCode);
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, languageCode);
+    applyLanguage(languageCode);
+  };
 
   if (!isMounted) return null;
 
@@ -123,6 +168,24 @@ export default function ProfileClientView({
     >
       {/* ── Banner & Profile Identity ── */}
       <motion.div variants={maskedReveal} className="relative">
+        <div className="mb-4 flex justify-end">
+          <label className="inline-flex items-center gap-2 rounded-xl border border-[#1A2406]/10 bg-white/80 px-3 py-2 text-xs font-semibold text-[#1A2406]">
+            <Globe className="h-4 w-4" />
+            Language
+            <select
+              value={selectedLanguage}
+              onChange={(event) => handleLanguageChange(event.target.value)}
+              className="rounded-md border border-[#1A2406]/15 bg-white px-2 py-1 text-xs text-[#1A2406] outline-none"
+            >
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
         <div className="aspect-[4/1] w-full bg-[#1A2406]/[0.02] rounded-[40px] overflow-hidden border border-[#1A2406]/[0.05] relative shadow-inner">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(217,242,79,0.05)_0%,transparent_100%)]" />
           <div className="absolute inset-0 flex items-center justify-center opacity-10">
