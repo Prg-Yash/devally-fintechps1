@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,31 +7,30 @@ datasource db {
 }
 
 model User {
-  id            String    @id
-  name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
-  isBanned      Boolean   @default(false)
-  bannedAt      DateTime?
-  banExpiresAt  DateTime?
-  image         String?
-  phoneNumber   String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  sessions         Session[]
-  accounts         Account[]
-  twoFactorEnabled Boolean?    @default(false)
-  twofactors       TwoFactor[]
-  purchases        Purchase[]
-  passkeys         Passkey[]
-
-  createdAgreements  Agreement[] @relation("Creator")
-  receivedAgreements Agreement[] @relation("Receiver")
+  id                      String                   @id
+  name                    String
+  email                   String                   @unique
+  emailVerified           Boolean                  @default(false)
+  image                   String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  twoFactorEnabled        Boolean?                 @default(false)
+  phoneNumber             String?
+  banExpiresAt            DateTime?
+  bannedAt                DateTime?
+  isBanned                Boolean                  @default(false)
+  accounts                Account[]
+  createdAgreements       Agreement[]              @relation("Creator")
+  receivedAgreements      Agreement[]              @relation("Receiver")
   agreementChangeRequests AgreementChangeRequest[]
-  notifications Notification[]
-  raisedTickets      Ticket[]    @relation("RaisedTickets")
-  ticketsAgainstMe   Ticket[]    @relation("TicketsAgainstUser")
+  chat_message            chat_message[]
+  notifications           Notification[]
+  passkeys                Passkey[]
+  purchases               Purchase[]
+  sessions                Session[]
+  ticketsAgainstMe        Ticket[]                 @relation("TicketsAgainstUser")
+  raisedTickets           Ticket[]                 @relation("RaisedTickets")
+  twofactors              TwoFactor[]
 
   @@map("user")
 }
@@ -47,9 +43,8 @@ model Session {
   updatedAt DateTime @updatedAt
   ipAddress String?
   userAgent String?
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("session")
@@ -68,9 +63,8 @@ model Account {
   password              String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("account")
@@ -105,7 +99,6 @@ model Passkey {
   name         String?
   publicKey    String
   userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   credentialID String
   counter      Int
   deviceType   String
@@ -113,6 +106,7 @@ model Passkey {
   transports   String?
   createdAt    DateTime?
   aaguid       String?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([credentialID])
@@ -128,8 +122,7 @@ model Purchase {
   status            String
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("purchase")
 }
@@ -145,8 +138,7 @@ model Notification {
   isRead     Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, isRead])
@@ -154,32 +146,28 @@ model Notification {
 }
 
 model Agreement {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  amount      Float
-  status      String   @default("DRAFT")
-  currency    String   @default("PUSD")
-  dueDate     DateTime?
-  fundingError String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Protocol Sync Fields
-  projectId       Int?    @unique // On-chain project index
-  receiverAddress String? // Target wallet address
-  transactionHash String? // On-chain creation proof 
-  clientRefId     String? // Deterministic off-chain to on-chain ref
-
-  creatorId String
-  creator   User   @relation("Creator", fields: [creatorId], references: [id], onDelete: Cascade)
-
-  receiverId String
-  receiver   User   @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
-
-  milestones Milestone[]
-  changeRequests AgreementChangeRequest[]
-  tickets    Ticket[]
+  id              String                   @id @default(cuid())
+  title           String
+  description     String?
+  amount          Float
+  status          String                   @default("DRAFT")
+  currency        String                   @default("PUSD")
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  creatorId       String
+  receiverId      String
+  projectId       Int?                     @unique
+  receiverAddress String?
+  transactionHash String?
+  clientRefId     String?
+  dueDate         DateTime?
+  fundingError    String?
+  creator         User                     @relation("Creator", fields: [creatorId], references: [id], onDelete: Cascade)
+  receiver        User                     @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  changeRequests  AgreementChangeRequest[]
+  chat_message    chat_message[]
+  milestones      Milestone[]
+  tickets         Ticket[]
 
   @@index([creatorId])
   @@index([receiverId])
@@ -188,15 +176,13 @@ model Agreement {
 }
 
 model AgreementChangeRequest {
-  id          String    @id @default(cuid())
-  note        String
-  createdAt   DateTime  @default(now())
-
-  agreementId String
-  agreement   Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-
+  id            String    @id @default(cuid())
+  note          String
+  createdAt     DateTime  @default(now())
+  agreementId   String
   requestedById String
-  requestedBy   User     @relation(fields: [requestedById], references: [id], onDelete: Cascade)
+  agreement     Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  requestedBy   User      @relation(fields: [requestedById], references: [id], onDelete: Cascade)
 
   @@index([agreementId])
   @@index([requestedById])
@@ -204,24 +190,21 @@ model AgreementChangeRequest {
 }
 
 model Ticket {
-  id          String         @id @default(cuid())
-  title       String
-  description String
-  reason      String
-  status      String         @default("OPEN")
-  severity    TicketSeverity @default(LOW)
-  evidenceUrl String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-
-  raisedById String
-  raisedBy   User   @relation("RaisedTickets", fields: [raisedById], references: [id], onDelete: Cascade)
-
+  id            String         @id @default(cuid())
+  title         String
+  description   String
+  reason        String
+  status        String         @default("OPEN")
+  evidenceUrl   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  raisedById    String
   againstUserId String
-  againstUser   User   @relation("TicketsAgainstUser", fields: [againstUserId], references: [id], onDelete: Cascade)
-
-  agreementId String?
-  agreement   Agreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  agreementId   String?
+  severity      TicketSeverity @default(LOW)
+  againstUser   User           @relation("TicketsAgainstUser", fields: [againstUserId], references: [id], onDelete: Cascade)
+  agreement     Agreement?     @relation(fields: [agreementId], references: [id])
+  raisedBy      User           @relation("RaisedTickets", fields: [raisedById], references: [id], onDelete: Cascade)
 
   @@index([raisedById])
   @@index([againstUserId])
@@ -231,29 +214,43 @@ model Ticket {
   @@map("ticket")
 }
 
+model Milestone {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  amount       Float
+  status       String    @default("PENDING")
+  dueDate      DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  agreementId  String
+  order        Int       @default(0)
+  paidAt       DateTime?
+  payoutTxHash String?
+  agreement    Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@map("milestone")
+}
+
+model chat_message {
+  id          String     @id
+  content     String
+  createdAt   DateTime   @default(now())
+  senderId    String
+  agreementId String?
+  projectId   Int?
+  agreement   Agreement? @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  user        User       @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@index([projectId])
+  @@index([senderId])
+}
+
 enum TicketSeverity {
   LOW
   MEDIUM
   HIGH
   CRITICAL
-}
-
-model Milestone {
-  id          String    @id @default(cuid())
-  title       String
-  description String?
-  amount      Float
-  status      String    @default("PENDING")
-  paidAt      DateTime?
-  payoutTxHash String?
-  dueDate     DateTime?
-  order       Int       @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  agreementId String
-  agreement   Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-
-  @@index([agreementId])
-  @@map("milestone")
 }
