@@ -168,6 +168,7 @@ export default function NewAgreementPage() {
   const [aiComplexity, setAiComplexity] = useState("");
   const [aiBudgetReasoning, setAiBudgetReasoning] = useState("");
   const [aiTechStack, setAiTechStack] = useState<string[]>([]);
+  const copilotIdeaHandledRef = useRef(false);
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
   const pusdContract = useMemo(() => getPusdContract(thirdwebClient), []);
@@ -436,6 +437,35 @@ export default function NewAgreementPage() {
       setIsAiGenerating(false);
     }
   };
+
+  // Support opening this page from Copilot with ?idea=... and auto-run generation once.
+  useEffect(() => {
+    if (copilotIdeaHandledRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const passedIdea = params.get("idea");
+    if (!passedIdea?.trim()) {
+      copilotIdeaHandledRef.current = true;
+      return;
+    }
+
+    copilotIdeaHandledRef.current = true;
+    setAiIdea(passedIdea);
+    toast.info("Idea received from Copilot. Auto-generating draft...", {
+      duration: 2500,
+    });
+    window.history.replaceState({}, "", "/agreements/new-agreement");
+
+    const timerId = window.setTimeout(() => {
+      void handleAiGenerate(passedIdea);
+    }, 800);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, []);
 
   // ─── Gradient border class helper ───
   const getFieldGlow = (field: AiActiveField) => {
