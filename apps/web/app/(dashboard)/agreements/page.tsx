@@ -88,6 +88,7 @@ interface Agreement {
   currency: string;
   status: string;
   createdAt: string;
+  dueDate?: string;
   creator: { id: string; name: string; email: string };
   receiver: { id: string; name: string; email: string };
   milestones: Milestone[];
@@ -115,7 +116,7 @@ const txStepMeta: Record<TxStep, { label: string; color: string }> = {
   error: { label: "Failed", color: "bg-red-100 text-red-700" },
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+const API_BASE_URL = "/api";
 
 /* ─── Main Page Component ──────────────────────────────────────────────── */
 
@@ -205,7 +206,7 @@ export default function AgreementsPage() {
       }
     } catch (error) {
       console.error("Error fetching agreements:", error);
-      toast.error(`Failed to fetch agreements - make sure the API server is running on ${API_BASE_URL}`);
+      toast.error("Failed to fetch agreements");
     } finally {
       agreementsFetchInFlightRef.current = false;
       if (!silent) {
@@ -342,6 +343,10 @@ export default function AgreementsPage() {
   /* ─── Sub-components ─────────────────────────────────────────────── */
 
   const AgreementCard = ({ agreement, type }: { agreement: Agreement; type: "incoming" | "outgoing" }) => {
+    const isDraftAgreement = ["DRAFT", "NEGOTIATING", "READY_TO_FUND"].includes(
+      String(agreement.status || "").toUpperCase(),
+    );
+
     const linkedProtocol =
       agreement.projectId !== undefined && agreement.projectId !== null
         ? projectsById.get(Number(agreement.projectId))
@@ -353,6 +358,7 @@ export default function AgreementsPage() {
       linkedProtocol
         ? formatPusdAmount(BigInt(linkedProtocol.amount) - BigInt(linkedProtocol.releasedAmount))
         : null;
+    const firstMilestone = agreement.milestones?.[0] || null;
 
     return (
       <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
@@ -388,8 +394,8 @@ export default function AgreementsPage() {
           </CardHeader>
 
           <CardContent className="space-y-4 relative z-10">
-            <div className={`rounded-xl border px-3 py-2 ${linkedProtocol ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/60"}`}>
-              {linkedProtocol ? (
+            <div className={`rounded-xl border px-3 py-2 ${linkedProtocol && !isDraftAgreement ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-slate-50/70"}`}>
+              {linkedProtocol && !isDraftAgreement ? (
                 <div className="space-y-1">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">
                     Linked Protocol: PID-{linkedProtocol.projectId.toString()}
@@ -399,9 +405,14 @@ export default function AgreementsPage() {
                   </p>
                 </div>
               ) : (
-                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700">
-                  Off-chain only record. No on-chain project linked.
-                </p>
+                <div className="space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-700">
+                    Draft agreement. Pending publish.
+                  </p>
+                  <p className="text-[10px] text-[#1A2406]/60">
+                    Freelancer: {agreement.receiver?.name || agreement.receiver?.email || "Not assigned"}
+                  </p>
+                </div>
               )}
             </div>
 
@@ -423,6 +434,18 @@ export default function AgreementsPage() {
                 <p className="text-lg font-bold text-[#1A2406]">{agreement.milestones.length}</p>
               </div>
             </div>
+
+            {isDraftAgreement && (
+              <div className="rounded-xl bg-slate-50/70 p-3 border border-black/[0.02] space-y-1.5">
+                <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase tracking-widest leading-none">Draft Summary</p>
+                <p className="text-[11px] text-[#1A2406]/60">
+                  First milestone: {firstMilestone?.title || "Not set"}
+                </p>
+                <p className="text-[11px] text-[#1A2406]/60">
+                  Due date: {agreement.dueDate ? new Date(agreement.dueDate).toLocaleDateString() : "Not set"}
+                </p>
+              </div>
+            )}
 
             <div className="pt-3 border-t border-white/40 flex items-center justify-between">
               <span className="text-[10px] font-medium text-[#1A2406]/30 flex items-center gap-1.5">
@@ -465,6 +488,14 @@ export default function AgreementsPage() {
       return bTime - aTime;
     });
   }, [incomingAgreements, outgoingAgreements]);
+
+  const allAgreementsWithType = useMemo(() => {
+    const userId = session?.user?.id;
+    return allAgreements.map((agreement) => ({
+      agreement,
+      type: agreement.creator.id === userId ? "outgoing" : "incoming" as "outgoing" | "incoming",
+    }));
+  }, [allAgreements, session?.user?.id]);
 
   return (
     <motion.div
@@ -528,46 +559,10 @@ export default function AgreementsPage() {
                 <p className="text-sm text-[#1A2406]/30 font-medium italic">No agreements recorded for this account.</p>
               </div>
             ) : (
-              <div className="space-y-10">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#1A2406]/40">Outgoing</h3>
-                    <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest border-none">
-                      {outgoingAgreements.length}
-                    </Badge>
-                  </div>
-                  {outgoingAgreements.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-[#1A2406]/10 p-8 text-center text-sm text-[#1A2406]/30">
-                      No outgoing agreements.
-                    </div>
-                  ) : (
-                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                      {outgoingAgreements.map((agreement) => (
-                        <AgreementCard key={agreement.id} agreement={agreement} type="outgoing" />
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#1A2406]/40">Incoming</h3>
-                    <Badge variant="outline" className="rounded-full bg-slate-50 text-[10px] font-bold text-[#1A2406]/40 uppercase tracking-widest border-none">
-                      {incomingAgreements.length}
-                    </Badge>
-                  </div>
-                  {incomingAgreements.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-[#1A2406]/10 p-8 text-center text-sm text-[#1A2406]/30">
-                      No incoming agreements.
-                    </div>
-                  ) : (
-                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                      {incomingAgreements.map((agreement) => (
-                        <AgreementCard key={agreement.id} agreement={agreement} type="incoming" />
-                      ))}
-                    </div>
-                  )}
-                </div>
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {allAgreementsWithType.map(({ agreement, type }) => (
+                  <AgreementCard key={agreement.id} agreement={agreement} type={type} />
+                ))}
               </div>
             )}
           </motion.div>

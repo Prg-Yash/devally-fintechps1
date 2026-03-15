@@ -28,36 +28,6 @@ const agreementInclude: AgreementInclude = {
 
 const normalizeEmail = (email: string) => String(email || '').trim().toLowerCase();
 
-const notifyDraftCreated = async (input: {
-  receiverEmail: string;
-  creatorName?: string | null;
-  agreementTitle: string;
-}) => {
-  const webhookUrl = process.env.AGREEMENT_EMAIL_WEBHOOK_URL;
-  if (!webhookUrl) {
-    console.log(`[Draft Notice] ${input.receiverEmail} invited to review agreement: ${input.agreementTitle}`);
-    return;
-  }
-
-  try {
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'agreement_draft_created',
-        to: input.receiverEmail,
-        subject: 'New PayCrow Agreement Draft Pending Your Review',
-        payload: {
-          title: input.agreementTitle,
-          creatorName: input.creatorName || 'Client',
-        },
-      }),
-    });
-  } catch (error) {
-    console.error('Draft notification webhook failed:', error);
-  }
-};
-
 export const createDraftAgreement = async (req: Request, res: Response) => {
   try {
     const {
@@ -91,7 +61,10 @@ export const createDraftAgreement = async (req: Request, res: Response) => {
     });
 
     if (!receiver) {
-      return res.status(404).json({ error: `User not found with email: ${normalizedEmail}` });
+      return res.status(404).json({
+        error: 'User not found, please enter a valid email address',
+        email: normalizedEmail,
+      });
     }
 
     const creator = await prisma.user.findUnique({
@@ -127,10 +100,14 @@ export const createDraftAgreement = async (req: Request, res: Response) => {
       include: agreementInclude,
     });
 
-    await notifyDraftCreated({
-      receiverEmail: receiver.email,
-      creatorName: creator.name,
-      agreementTitle: draft.title,
+    await notifyUser({
+      userId: draft.receiverId,
+      title: 'New agreement draft received',
+      message: `You received draft "${draft.title}" from ${creator.email}.`,
+      type: 'AGREEMENT',
+      entityType: 'agreement',
+      entityId: draft.id,
+      emailSubject: 'Devally: New draft agreement pending your review',
     });
 
     return res.status(201).json({
@@ -190,12 +167,68 @@ export const updateDraftAgreement = async (req: Request, res: Response) => {
       include: agreementInclude,
     });
 
+    await notifyUser({
+      userId: updated.receiverId,
+      title: 'Updated agreement received',
+      message: `Client updated "${updated.title}" and sent it for your review.`,
+      type: 'AGREEMENT',
+      entityType: 'agreement',
+      entityId: updated.id,
+      emailSubject: 'Devally: Updated agreement waiting for your approval',
+    });
+
     return res.json({
       message: 'Draft updated and resubmitted to freelancer',
       agreement: updated,
     });
   } catch (error: any) {
     console.error('Error updating draft agreement:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
+
+export const resendAgreementForReview = async (req: Request, res: Response) => {
+  try {
+    const agreementId = Array.isArray(req.params.agreementId) ? req.params.agreementId[0] : req.params.agreementId;
+    const { creatorId } = req.body;
+
+    if (!agreementId || !creatorId) {
+      return res.status(400).json({ error: 'agreementId and creatorId are required' });
+    }
+
+    const agreement = await prisma.agreement.findUnique({
+      where: { id: agreementId },
+      include: agreementInclude,
+    });
+
+    if (!agreement) {
+      return res.status(404).json({ error: 'Agreement not found' });
+    }
+
+    if (agreement.creatorId !== creatorId) {
+      return res.status(403).json({ error: 'Only the creator can resend agreement for review' });
+    }
+
+    if (!['DRAFT', 'NEGOTIATING'].includes(agreement.status)) {
+      return res.status(409).json({ error: `Cannot resend agreement in ${agreement.status} state` });
+    }
+
+    await notifyUser({
+      userId: agreement.receiverId,
+      title: 'Agreement ready for your acceptance',
+      message: `Client requested your acceptance for "${agreement.title}".`,
+      type: 'AGREEMENT',
+      entityType: 'agreement',
+      entityId: agreement.id,
+      emailSubject: 'Devally: Please review and accept agreement',
+    });
+
+    return res.json({
+      message: 'Agreement resent to freelancer for acceptance',
+      agreement,
+    });
+  } catch (error: any) {
+    console.error('Error resending agreement for review:', error);
     return res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 };
@@ -418,174 +451,8 @@ export const markMilestonePaid = async (req: Request, res: Response) => {
 };
 
 export const createAgreement = async (req: Request, res: Response) => {
-  try {
-    const {
-      title,
-      description,
-      amount,
-      currency,
-      status,
-      receiverEmail,
-      creatorId,
-      milestones,
-      projectId,
-      receiverAddress,
-      transactionHash,
-      dueDate,
-    } = req.body;
-
-    if (!creatorId) {
-      return res.status(400).json({ error: 'Creator ID is required' });
-    }
-
-    if (!receiverEmail) {
-      return res.status(400).json({ error: 'Receiver email is required' });
-    }
-
-    const normalizedEmail = normalizeEmail(receiverEmail);
-    const receiver = await prisma.user.findFirst({
-      where: {
-        email: {
-          equals: normalizedEmail,
-          mode: 'insensitive',
-        },
-      },
-      select: { id: true },
-    });
-
-    if (!receiver) {
-      return res.status(404).json({ error: `User not found with email: ${normalizedEmail}` });
-    }
-
-    const normalizedProjectId = projectId !== undefined && projectId !== null ? Number(projectId) : null;
-    const normalizedTxHash = typeof transactionHash === 'string' ? transactionHash.trim() : '';
-
-    // Backward compatibility: draft-like create when no chain data is supplied.
-    if (normalizedProjectId === null || Number.isNaN(normalizedProjectId) || !normalizedTxHash) {
-      const draft = await prisma.agreement.create({
-        data: {
-          title: title || 'Untitled Agreement',
-          description,
-          amount: Number(amount) || 0,
-          currency: currency || 'PUSD',
-          status: status || 'DRAFT',
-          dueDate: dueDate ? new Date(dueDate) : null,
-          creatorId,
-          receiverId: receiver.id,
-          receiverAddress: receiverAddress || null,
-          milestones: {
-            create: (milestones || []).map((milestone: any, index: number) => ({
-              title: milestone.title,
-              description: milestone.description,
-              amount: Number(milestone.amount) || 0,
-              dueDate: milestone.dueDate ? new Date(milestone.dueDate) : null,
-              order: Number.isFinite(milestone.order) ? Number(milestone.order) : index,
-              status: milestone.status || 'PENDING',
-            })),
-          },
-        },
-        include: agreementInclude,
-      });
-
-      return res.status(201).json({
-        message: 'Draft agreement created successfully',
-        agreement: draft,
-      });
-    }
-
-    let agreement = await prisma.agreement.findUnique({
-      where: { projectId: normalizedProjectId },
-      include: agreementInclude,
-    });
-
-    if (agreement) {
-      agreement = await prisma.agreement.update({
-        where: { id: agreement.id },
-        data: {
-          title: title || agreement.title,
-          description,
-          amount: Number(amount) || agreement.amount,
-          currency: currency || agreement.currency,
-          status: status || 'ACTIVE',
-          dueDate: dueDate ? new Date(dueDate) : agreement.dueDate,
-          creatorId,
-          receiverId: receiver.id,
-          projectId: normalizedProjectId,
-          receiverAddress: receiverAddress || agreement.receiverAddress,
-          transactionHash: normalizedTxHash,
-          fundingError: null,
-          milestones: {
-            deleteMany: {},
-            create: (milestones || []).map((milestone: any, index: number) => ({
-              title: milestone.title,
-              description: milestone.description,
-              amount: Number(milestone.amount) || 0,
-              dueDate: milestone.dueDate ? new Date(milestone.dueDate) : null,
-              order: Number.isFinite(milestone.order) ? Number(milestone.order) : index,
-              status: milestone.status || 'PENDING',
-            })),
-          },
-        },
-        include: agreementInclude,
-      });
-    } else {
-      agreement = await prisma.agreement.create({
-        data: {
-          title: title || 'Untitled Agreement',
-          description,
-          amount: Number(amount) || 0,
-          currency: currency || 'PUSD',
-          status: status || 'ACTIVE',
-          dueDate: dueDate ? new Date(dueDate) : null,
-          creatorId,
-          receiverId: receiver.id,
-          projectId: normalizedProjectId,
-          receiverAddress,
-          transactionHash: normalizedTxHash,
-          milestones: {
-            create: (milestones || []).map((milestone: any, index: number) => ({
-              title: milestone.title,
-              description: milestone.description,
-              amount: Number(milestone.amount) || 0,
-              dueDate: milestone.dueDate ? new Date(milestone.dueDate) : null,
-              order: Number.isFinite(milestone.order) ? Number(milestone.order) : index,
-              status: milestone.status || 'PENDING',
-            })),
-          },
-        },
-        include: agreementInclude,
-      });
-    }
-
-    await Promise.all([
-      notifyUser({
-        userId: agreement.receiverId,
-        title: 'New agreement received',
-        message: `You received agreement "${agreement.title}" from ${agreement.creator?.email || 'a user'}.`,
-        type: 'AGREEMENT',
-        entityType: 'agreement',
-        entityId: agreement.id,
-        emailSubject: 'Devally: New agreement assigned to you',
-      }),
-      notifyUser({
-        userId: agreement.creatorId,
-        title: 'Agreement submitted',
-        message: `Your agreement "${agreement.title}" was created successfully.`,
-        type: 'AGREEMENT',
-        entityType: 'agreement',
-        entityId: agreement.id,
-        emailSubject: 'Devally: Agreement created',
-      }),
-    ]);
-
-    return res.status(201).json({
-      message: 'Agreement created successfully',
-      agreement,
-    });
-  } catch (error: any) {
-    console.error('Error creating agreement:', error);
-    return res.status(500).json({ error: error?.message || 'Internal server error' });
-  }
+  // Legacy route compatibility: all creates are draft-first and off-chain.
+  return createDraftAgreement(req, res);
 };
 
 export const getIncomingAgreements = async (req: Request, res: Response) => {

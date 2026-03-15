@@ -27,7 +27,6 @@ import { AICoPilotPopup } from '@/components/AICoPilotPopup'
 import { formatPccBaseUnits, getPccBalance } from '@/lib/paycrow-coin'
 
 const API_BASE_URL = '/api'
-const API_SERVER_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:5000'
 
 type AppNotification = {
   id: string
@@ -61,7 +60,7 @@ const NotificationCenter = ({ userId }: { userId: string }) => {
     try {
       setLoading(true)
       const response = await fetch(
-        `${API_SERVER_BASE_URL}/notifications?userId=${encodeURIComponent(userId)}&limit=25`,
+        `${API_BASE_URL}/notifications?userId=${encodeURIComponent(userId)}&limit=25`,
         { cache: 'no-store' },
       )
 
@@ -92,7 +91,7 @@ const NotificationCenter = ({ userId }: { userId: string }) => {
 
   const markOneRead = async (notificationId: string) => {
     try {
-      await fetch(`${API_SERVER_BASE_URL}/notifications/${notificationId}/read`, {
+      await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
@@ -108,7 +107,7 @@ const NotificationCenter = ({ userId }: { userId: string }) => {
 
   const markAllRead = async () => {
     try {
-      await fetch(`${API_SERVER_BASE_URL}/notifications/read-all`, {
+      await fetch(`${API_BASE_URL}/notifications/read-all`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),

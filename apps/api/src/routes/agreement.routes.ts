@@ -3,6 +3,7 @@ import express from 'express';
 import {
   createDraftAgreement,
   updateDraftAgreement,
+  resendAgreementForReview,
   requestAgreementChanges,
   approveAgreementForFunding,
   markAgreementFunded,
@@ -22,6 +23,7 @@ const router = Router();
 // Draft workflow routes
 router.post('/drafts', express.json(), createDraftAgreement);
 router.put('/:agreementId/draft', express.json(), updateDraftAgreement);
+router.put('/:agreementId/resend', express.json(), resendAgreementForReview);
 router.put('/:agreementId/request-changes', express.json(), requestAgreementChanges);
 router.put('/:agreementId/approve', express.json(), approveAgreementForFunding);
 router.put('/:agreementId/publish', express.json(), markAgreementFunded);

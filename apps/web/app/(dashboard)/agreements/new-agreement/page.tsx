@@ -476,9 +476,39 @@ export default function NewAgreementPage() {
       }
 
       if (!res.ok || !data?.agreement?.id) {
+        if (data?.code === "DB_SCHEMA_OUTDATED") {
+          throw new Error(
+            "Database schema is outdated. Run `npx prisma db push` from packages/db and restart `apps/web`.",
+          );
+        }
+
         const backendMessage =
           data?.error || data?.message || (typeof data === "string" ? data : null) || raw || "Failed to create draft agreement";
         throw new Error(`Failed to create draft agreement (${res.status}): ${backendMessage}`);
+      }
+
+      const receiverId =
+        data?.agreement?.receiverId ||
+        data?.agreement?.receiver?.id ||
+        "";
+
+      if (receiverId) {
+        const notificationRes = await fetch("/api/agreements/draft-notification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agreementId: String(data.agreement.id),
+            receiverId: String(receiverId),
+            agreementTitle: String(data.agreement.title || formData.title.trim()),
+            creatorEmail: String(session.user.email || ""),
+          }),
+        });
+
+        if (!notificationRes.ok) {
+          const notificationRaw = await notificationRes.text();
+          console.warn("Draft created but notification dispatch failed:", notificationRaw);
+          toast.warning("Draft saved, but notification dispatch failed. Please retry from agreement details.");
+        }
       }
 
       setTxStep("verified");

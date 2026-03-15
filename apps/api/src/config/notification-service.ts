@@ -1,156 +1,150 @@
-import { randomUUID } from 'crypto';
-import prisma from './prisma';
-import { sendNotificationEmail } from './mailer';
-
 export type NotificationType = 'AGREEMENT' | 'TICKET' | 'PURCHASE';
 
 export type NotificationRow = {
-  id: string;
-  userId: string;
-  title: string;
-  message: string;
-  type: string;
-  entityType: string | null;
-  entityId: string | null;
-  isRead: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+	id: string;
+	userId: string;
+	title: string;
+	message: string;
+	type: string;
+	entityType: string | null;
+	entityId: string | null;
+	isRead: boolean;
+	createdAt: Date;
+	updatedAt: Date;
 };
 
-let tableReady = false;
+const NEXT_NOTIFICATIONS_BASE_URL = process.env.NOTIFICATION_API_BASE_URL || 'http://localhost:3000/api/notifications';
+const NOTIFICATION_API_SECRET = process.env.NOTIFICATION_API_SECRET || '';
 
-const ensureNotificationTable = async () => {
-  if (tableReady) {
-    return;
-  }
+const buildHeaders = () => {
+	const headers: Record<string, string> = {
+		'Content-Type': 'application/json',
+	};
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "notification" (
-      "id" TEXT PRIMARY KEY,
-      "userId" TEXT NOT NULL,
-      "title" TEXT NOT NULL,
-      "message" TEXT NOT NULL,
-      "type" TEXT NOT NULL,
-      "entityType" TEXT,
-      "entityId" TEXT,
-      "isRead" BOOLEAN NOT NULL DEFAULT false,
-      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT "notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE
-    );
-  `);
+	if (NOTIFICATION_API_SECRET) {
+		headers['x-notification-secret'] = NOTIFICATION_API_SECRET;
+	}
 
-  await prisma.$executeRawUnsafe(
-    'CREATE INDEX IF NOT EXISTS "notification_userId_createdAt_idx" ON "notification" ("userId", "createdAt" DESC);'
-  );
-
-  tableReady = true;
+	return headers;
 };
 
 export const createNotificationForUser = async ({
-  userId,
-  title,
-  message,
-  type,
-  entityType,
-  entityId,
+	userId,
+	title,
+	message,
+	type,
+	entityType,
+	entityId,
 }: {
-  userId: string;
-  title: string;
-  message: string;
-  type: NotificationType;
-  entityType?: string;
-  entityId?: string;
+	userId: string;
+	title: string;
+	message: string;
+	type: NotificationType;
+	entityType?: string;
+	entityId?: string;
 }) => {
-  await ensureNotificationTable();
+	const response = await fetch(NEXT_NOTIFICATIONS_BASE_URL, {
+		method: 'POST',
+		headers: buildHeaders(),
+		body: JSON.stringify({ userId, title, message, type, entityType, entityId }),
+	});
 
-  const id = randomUUID();
+	if (!response.ok) {
+		const text = await response.text();
+		throw new Error(`Notification create failed (${response.status}): ${text}`);
+	}
 
-  await prisma.$executeRaw`
-    INSERT INTO "notification" ("id", "userId", "title", "message", "type", "entityType", "entityId")
-    VALUES (${id}, ${userId}, ${title}, ${message}, ${type}, ${entityType ?? null}, ${entityId ?? null})
-  `;
-
-  return id;
+	return null;
 };
 
 export const notifyUser = async ({
-  userId,
-  title,
-  message,
-  type,
-  entityType,
-  entityId,
-  emailSubject,
+	userId,
+	title,
+	message,
+	type,
+	entityType,
+	entityId,
+	emailSubject,
 }: {
-  userId: string;
-  title: string;
-  message: string;
-  type: NotificationType;
-  entityType?: string;
-  entityId?: string;
-  emailSubject?: string;
+	userId: string;
+	title: string;
+	message: string;
+	type: NotificationType;
+	entityType?: string;
+	entityId?: string;
+	emailSubject?: string;
 }) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true },
-    });
+	try {
+		const response = await fetch(NEXT_NOTIFICATIONS_BASE_URL, {
+			method: 'POST',
+			headers: buildHeaders(),
+			body: JSON.stringify({
+				userId,
+				title,
+				message,
+				type,
+				entityType,
+				entityId,
+				emailSubject,
+			}),
+		});
 
-    if (!user) {
-      return;
-    }
-
-    await createNotificationForUser({
-      userId: user.id,
-      title,
-      message,
-      type,
-      entityType,
-      entityId,
-    });
-
-    await sendNotificationEmail({
-      to: user.email,
-      subject: emailSubject || title,
-      title,
-      message,
-    });
-  } catch (error) {
-    console.error('Notification dispatch failed:', error);
-  }
+		if (!response.ok) {
+			const text = await response.text();
+			throw new Error(`Notification dispatch failed (${response.status}): ${text}`);
+		}
+	} catch (error) {
+		console.error('Notification proxy dispatch failed:', error);
+	}
 };
 
 export const getNotificationsForUser = async (userId: string, limit: number) => {
-  await ensureNotificationTable();
+	const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : 50;
+	const response = await fetch(
+		`${NEXT_NOTIFICATIONS_BASE_URL}?userId=${encodeURIComponent(userId)}&limit=${safeLimit}`,
+		{
+			method: 'GET',
+			headers: buildHeaders(),
+		},
+	);
 
-  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : 50;
+	if (!response.ok) {
+		const text = await response.text();
+		throw new Error(`Notification fetch failed (${response.status}): ${text}`);
+	}
 
-  return prisma.$queryRaw<NotificationRow[]>`
-    SELECT "id", "userId", "title", "message", "type", "entityType", "entityId", "isRead", "createdAt", "updatedAt"
-    FROM "notification"
-    WHERE "userId" = ${userId}
-    ORDER BY "createdAt" DESC
-    LIMIT ${safeLimit}
-  `;
+	const data = (await response.json()) as { notifications?: NotificationRow[] };
+	return Array.isArray(data?.notifications) ? (data.notifications as NotificationRow[]) : [];
 };
 
 export const markNotificationRead = async (userId: string, notificationId: string) => {
-  await ensureNotificationTable();
+	const response = await fetch(`${NEXT_NOTIFICATIONS_BASE_URL}/${notificationId}/read`, {
+		method: 'PATCH',
+		headers: buildHeaders(),
+		body: JSON.stringify({ userId }),
+	});
 
-  return prisma.$executeRaw`
-    UPDATE "notification"
-    SET "isRead" = true, "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${notificationId} AND "userId" = ${userId}
-  `;
+	if (!response.ok) {
+		const text = await response.text();
+		throw new Error(`Notification read update failed (${response.status}): ${text}`);
+	}
+
+	const data = (await response.json()) as { updatedCount?: number };
+	return Number(data?.updatedCount || 0);
 };
 
 export const markAllNotificationsRead = async (userId: string) => {
-  await ensureNotificationTable();
+	const response = await fetch(`${NEXT_NOTIFICATIONS_BASE_URL}/read-all`, {
+		method: 'PATCH',
+		headers: buildHeaders(),
+		body: JSON.stringify({ userId }),
+	});
 
-  return prisma.$executeRaw`
-    UPDATE "notification"
-    SET "isRead" = true, "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "userId" = ${userId} AND "isRead" = false
-  `;
+	if (!response.ok) {
+		const text = await response.text();
+		throw new Error(`Notification read-all update failed (${response.status}): ${text}`);
+	}
+
+	const data = (await response.json()) as { updatedCount?: number };
+	return Number(data?.updatedCount || 0);
 };
