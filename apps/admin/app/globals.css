@@ -7,6 +7,10 @@
   --line: #d9d0bf;
   --accent: #2f5d43;
   --accent-soft: #deebdc;
+  --table-head-bg: linear-gradient(180deg, #f9fbf2 0%, #f2f6e6 100%);
+  --table-row-even: #fbfcf8;
+  --table-row-hover: #f2f6df;
+  --table-row-border: #e8ebdc;
 }
 
 .admin-body {
@@ -156,36 +160,82 @@
 .table-wrap {
   overflow: auto;
   background: white;
-  border-radius: 1rem;
-  box-shadow: 0 4px 14px rgba(18, 32, 22, 0.05);
-  border: 1px solid #d9d0bf;
+  border-radius: 1.8rem;
+  box-shadow: 0 18px 38px -14px rgba(26, 36, 6, 0.34);
+  border: 1px solid rgba(26, 36, 6, 0.1);
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
+  font-family: var(--font-inter), var(--font-geist-sans), "Segoe UI", sans-serif;
 }
 
 th,
 td {
   text-align: left;
-  padding: 1rem;
-  border-bottom: 1px solid #ece6d9;
-  font-size: 0.875rem;
-  color: #122016;
+  padding: 0.95rem 1rem;
+  border-bottom: 1px solid var(--table-row-border);
+  font-size: 0.85rem;
+  color: #1a2406;
+  line-height: 1.45;
+  vertical-align: middle;
 }
 
 th {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #5b6a60;
+  font-family: var(--font-jakarta), var(--font-geist-sans), "Segoe UI", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: rgba(26, 36, 6, 0.65);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background: #fdfcf9;
+  letter-spacing: 0.14em;
+  background: var(--table-head-bg);
+  border-bottom: 1px solid rgba(26, 36, 6, 0.12);
+}
+
+td {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+tbody tr:nth-child(even) {
+  background: var(--table-row-even);
+}
+
+tbody tr td:first-child {
+  font-family: var(--font-jakarta), var(--font-geist-sans), "Segoe UI", sans-serif;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #122016;
+}
+
+tbody tr td:last-child {
+  white-space: nowrap;
+}
+
+td strong,
+td b {
+  font-family: var(--font-jakarta), var(--font-geist-sans), "Segoe UI", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 tbody tr:hover {
-  background: #fcfcfb;
+  background: var(--table-row-hover);
+}
+
+tbody tr:hover td {
+  border-bottom-color: #dbe2c2;
+}
+
+table a {
+  color: #1f4f36;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+table a:hover {
+  text-decoration: underline;
 }
 
 .admin-link-button {

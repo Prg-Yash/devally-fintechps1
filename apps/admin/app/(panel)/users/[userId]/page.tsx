@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft, AlertTriangle, ShieldCheck, Users2 } from "lucide-react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
 
@@ -119,23 +121,45 @@ export default function UserDetailsPage() {
   };
 
   if (loading) {
-    return <section className="admin-page"><p>Loading user details...</p></section>;
+    return (
+      <section className="admin-page">
+        <div className="rounded-2xl border border-[#d8e1d4] bg-white px-5 py-8 text-center text-sm font-medium text-[#54665a]">
+          Loading user details...
+        </div>
+      </section>
+    );
   }
 
   if (error || !user) {
     return (
       <section className="admin-page">
-        <h2>User Details</h2>
-        <p>{error || "User not found"}</p>
+        <p className="rounded-xl border border-[#eccbcb] bg-[#fae8e8] px-4 py-3 text-sm font-semibold text-[#8f1f2f]">
+          {error || "User not found"}
+        </p>
       </section>
     );
   }
 
   return (
-    <section className="admin-page">
-      <header className="admin-page-header">
-        <h2>{user.name}</h2>
-        <p>{user.email}</p>
+    <section className="admin-page space-y-6">
+      <header className="rounded-[40px] border border-[#d9dfcf] bg-transparent px-6 py-8 text-[#121212]">
+        <div className="flex flex-col gap-3">
+          <Link href="/users" className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.16em] text-black/60 hover:text-black">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to Users
+          </Link>
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-4xl md:text-5xl font-medium tracking-[-0.04em] [font-family:var(--font-jakarta)] text-black">{user.name}</h2>
+              <p className="mt-2 text-xs text-black/70">{user.email}</p>
+            </div>
+
+            <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${user.isBanned ? "border-[#ebc9cf] bg-[#f9e6e9] text-[#8b2937]" : "border-[#cae4d0] bg-[#e7f5ea] text-[#1e6a3f]"}`}>
+              {user.isBanned ? "BANNED" : "ACTIVE"}
+            </span>
+          </div>
+        </div>
       </header>
 
       <div className="flex flex-wrap gap-3">
@@ -143,7 +167,7 @@ export default function UserDetailsPage() {
           type="button"
           disabled={working}
           onClick={toggleBan}
-          className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="rounded-lg border border-[#ebdfbd] bg-[#f9f3df] px-4 py-2 text-sm font-semibold text-[#7a5c1f] disabled:opacity-50"
         >
           {user.isBanned ? "Unban User" : "Ban User"}
         </button>
@@ -151,20 +175,39 @@ export default function UserDetailsPage() {
           type="button"
           disabled={working}
           onClick={deleteUser}
-          className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="rounded-lg border border-[#ebc9cf] bg-[#f9e6e9] px-4 py-2 text-sm font-semibold text-[#8b2937] disabled:opacity-50"
         >
           Delete User
         </button>
       </div>
 
-      <div className="stat-grid">
-        <article className="stat-card"><h3>Status</h3><strong>{user.isBanned ? "BANNED" : "ACTIVE"}</strong></article>
-        <article className="stat-card"><h3>Email Verified</h3><strong>{user.emailVerified ? "YES" : "NO"}</strong></article>
-        <article className="stat-card"><h3>2FA</h3><strong>{user.twoFactorEnabled ? "ON" : "OFF"}</strong></article>
-        <article className="stat-card"><h3>Created</h3><strong>{fmt(user.createdAt)}</strong></article>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <article className="rounded-[28px] bg-white p-5 shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <div className="inline-flex rounded-full bg-[#D9F24F]/35 p-2 text-[#1A2406]"><Users2 className="h-4 w-4" /></div>
+          <h3 className="mt-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#1A2406]/55">Status</h3>
+          <strong className="mt-1 block text-3xl font-medium tracking-[-0.04em] [font-family:var(--font-jakarta)] text-[#1A2406]">{user.isBanned ? "BANNED" : "ACTIVE"}</strong>
+        </article>
+        <article className="rounded-[28px] bg-white p-5 text-black shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <div className="inline-flex rounded-full bg-[#eef2eb] p-2 text-black"><ShieldCheck className="h-4 w-4" /></div>
+          <h3 className="mt-3 text-[10px] font-bold uppercase tracking-[0.14em] text-black/65">Email Verified</h3>
+          <strong className="mt-1 block text-3xl font-medium tracking-[-0.04em] [font-family:var(--font-jakarta)] text-black">{user.emailVerified ? "YES" : "NO"}</strong>
+        </article>
+        <article className="rounded-[28px] bg-white p-5 shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <div className="inline-flex rounded-full bg-[#E7F5EA] p-2 text-[#1E6A3F]"><ShieldCheck className="h-4 w-4" /></div>
+          <h3 className="mt-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#1A2406]/55">2FA</h3>
+          <strong className="mt-1 block text-3xl font-medium tracking-[-0.04em] [font-family:var(--font-jakarta)] text-[#1A2406]">{user.twoFactorEnabled ? "ON" : "OFF"}</strong>
+        </article>
+        <article className="rounded-[28px] bg-white p-5 text-black shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <div className="inline-flex rounded-full bg-[#eef2eb] p-2 text-black"><AlertTriangle className="h-4 w-4" /></div>
+          <h3 className="mt-3 text-[10px] font-bold uppercase tracking-[0.14em] text-black/65">Created</h3>
+          <strong className="mt-1 block text-lg font-medium tracking-[-0.03em] [font-family:var(--font-jakarta)] text-black">{fmt(user.createdAt)}</strong>
+        </article>
       </div>
 
-      <div className="table-wrap">
+      <div className="overflow-hidden rounded-4xl bg-white shadow-[0_18px_38px_-14px_rgba(26,36,6,0.34)]">
+        <div className="flex items-center justify-between border-b border-[#1A2406]/10 bg-[#F7F8F2] px-5 py-4">
+          <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-[#1A2406]/65">User Metrics</h3>
+        </div>
         <table>
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
           <tbody>
@@ -182,7 +225,10 @@ export default function UserDetailsPage() {
         </table>
       </div>
 
-      <div className="table-wrap">
+      <div className="overflow-hidden rounded-4xl bg-white shadow-[0_18px_38px_-14px_rgba(26,36,6,0.34)]">
+        <div className="flex items-center justify-between border-b border-[#1A2406]/10 bg-[#F7F8F2] px-5 py-4">
+          <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-[#1A2406]/65">Recent Purchases</h3>
+        </div>
         <table>
           <thead><tr><th>Recent Purchases</th><th>Status</th><th>Amount</th><th>Created</th></tr></thead>
           <tbody>

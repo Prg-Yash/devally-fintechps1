@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { formatDate } from "@/app/lib/admin-api";
+import { ArrowLeft, ArrowUpRight, ChevronRight, CircleDot, FileWarning, ShieldAlert } from "lucide-react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5000";
 
@@ -58,6 +59,22 @@ type AgreementDetails = {
 };
 
 const summarizeError = (error: unknown) => (error instanceof Error ? error.message : "Unexpected error");
+
+const statusBadgeClass = (status: string) => {
+  const normalized = status.toUpperCase();
+  if (normalized === "RESOLVED" || normalized === "CLOSED") return "border-[#cae4d0] bg-[#e7f5ea] text-[#1e6a3f]";
+  if (normalized === "OPEN" || normalized === "IN_REVIEW") return "border-[#ebdfbd] bg-[#f9f3df] text-[#7a5c1f]";
+  if (normalized === "REJECTED") return "border-[#ebc9cf] bg-[#f9e6e9] text-[#8b2937]";
+  return "border-[#d8dfd3] bg-[#eef2eb] text-[#4f6055]";
+};
+
+const severityBadgeClass = (severity: string) => {
+  const normalized = severity.toUpperCase();
+  if (normalized === "CRITICAL") return "bg-[#f9e1e4] text-[#8f1f2f]";
+  if (normalized === "HIGH") return "bg-[#fae9d0] text-[#8a4f08]";
+  if (normalized === "MEDIUM") return "bg-[#f7f3e1] text-[#826a1b]";
+  return "bg-[#e8f4ea] text-[#2c6642]";
+};
 
 export default function TicketDetailsPage() {
   const params = useParams<{ ticketId: string }>();
@@ -161,34 +178,62 @@ export default function TicketDetailsPage() {
   };
 
   if (loading) {
-    return <section className="admin-page"><p>Loading ticket details...</p></section>;
+    return (
+      <section className="admin-page">
+        <div className="rounded-2xl border border-[#d8e1d4] bg-white px-5 py-8 text-center text-sm font-medium text-[#54665a]">
+          Loading ticket details...
+        </div>
+      </section>
+    );
   }
 
   if (!ticket) {
     return (
       <section className="admin-page">
-        <p className="text-sm text-[#8f1f2f]">{error || "Ticket not found"}</p>
+        <p className="rounded-xl border border-[#eccbcb] bg-[#fae8e8] px-4 py-3 text-sm font-semibold text-[#8f1f2f]">
+          {error || "Ticket not found"}
+        </p>
       </section>
     );
   }
 
   return (
-    <section className="admin-page space-y-6">
-      <header className="admin-page-header">
-        <h2>{ticket.title}</h2>
-        <p>Ticket ID: <span className="font-mono">{ticket.id}</span></p>
-        <div className="mt-2">
-          <Link href="/tickets" className="text-sm font-semibold text-[#1d4c35] hover:underline">
+    <section className="admin-page space-y-7">
+      <header className="rounded-[40px] border border-[#d9dfcf] bg-transparent px-6 py-8 text-[#121212]">
+        <div className="flex flex-col gap-3">
+          <Link href="/tickets" className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.16em] text-black/60 hover:text-black">
+            <ArrowLeft className="h-3.5 w-3.5" />
             Back to Tickets
           </Link>
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-4xl md:text-5xl font-medium tracking-[-0.04em] [font-family:var(--font-jakarta)] text-black">{ticket.title}</h2>
+              <p className="mt-2 text-xs text-black/70">Ticket ID: <span className="font-mono">{ticket.id}</span></p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <span className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${statusBadgeClass(status)}`}>
+                {status}
+              </span>
+              <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${severityBadgeClass(severity)}`}>
+                {severity}
+              </span>
+            </div>
+          </div>
         </div>
       </header>
 
-      {error ? <p className="text-sm text-[#8f1f2f]">{error}</p> : null}
+      {error ? (
+        <p className="rounded-xl border border-[#eccbcb] bg-[#fae8e8] px-4 py-3 text-sm font-semibold text-[#8f1f2f]">{error}</p>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <article className="rounded-xl border border-[#d9d0bf] bg-[#fffdf8] p-4">
-          <h3 className="text-xs font-bold uppercase text-[#526157]">Ticket Overview</h3>
+        <article className="rounded-[28px] bg-white p-5 shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <h3 className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#526157]">
+            <FileWarning className="h-3.5 w-3.5" />
+            Ticket Overview
+          </h3>
           <div className="mt-3 space-y-2 text-sm text-[#122016]">
             <p><strong>Reason:</strong> {ticket.reason}</p>
             <p><strong>Description:</strong> {ticket.description}</p>
@@ -197,15 +242,18 @@ export default function TicketDetailsPage() {
           </div>
         </article>
 
-        <article className="rounded-xl border border-[#d9d0bf] bg-[#fffdf8] p-4">
-          <h3 className="text-xs font-bold uppercase text-[#526157]">Admin Actions</h3>
+        <article className="rounded-[28px] bg-[#F7F8F2] p-5 shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <h3 className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#526157]">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            Admin Actions
+          </h3>
           <div className="mt-3 space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase text-[#526157]">Status</label>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-widest text-[#526157]">Status</label>
               <select
                 value={status}
                 onChange={(event) => setStatus(event.target.value)}
-                className="w-full rounded-md border border-[#d9d0bf] bg-white px-3 py-2 text-sm"
+                className="w-full rounded-md border border-[#d8e1d4] bg-white px-3 py-2 text-sm"
               >
                 {STATUS_OPTIONS.map((option) => (
                   <option key={option} value={option}>{option}</option>
@@ -214,11 +262,11 @@ export default function TicketDetailsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase text-[#526157]">Severity</label>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-widest text-[#526157]">Severity</label>
               <select
                 value={severity}
                 onChange={(event) => setSeverity(event.target.value)}
-                className="w-full rounded-md border border-[#d9d0bf] bg-white px-3 py-2 text-sm"
+                className="w-full rounded-md border border-[#d8e1d4] bg-white px-3 py-2 text-sm"
               >
                 {SEVERITY_OPTIONS.map((option) => (
                   <option key={option} value={option}>{option}</option>
@@ -230,7 +278,7 @@ export default function TicketDetailsPage() {
               type="button"
               onClick={updateTicket}
               disabled={saving}
-              className="rounded-md border border-[#1f6a42] bg-[#1f6a42] px-4 py-2 text-sm font-semibold text-white disabled:opacity-70"
+              className="rounded-md border border-[#1f6a42] bg-[#1f6a42] px-4 py-2 text-sm font-semibold text-white shadow-[0_6px_12px_rgba(31,106,66,0.2)] disabled:opacity-70"
             >
               {saving ? "Saving..." : "Save Changes"}
             </button>
@@ -239,15 +287,15 @@ export default function TicketDetailsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <article className="rounded-xl border border-[#d9d0bf] bg-[#fffbf9] p-4 text-[#122016]">
-          <h3 className="text-xs font-bold uppercase text-[#526157]">Raised By</h3>
+        <article className="rounded-[28px] bg-white p-5 text-[#122016] shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-[#526157]">Raised By</h3>
           <p className="mt-2 text-sm font-semibold">{ticket.raisedBy.name || "Anonymous"}</p>
           <p className="text-sm text-[#526157]">{ticket.raisedBy.email}</p>
           <p className="mt-2 text-xs font-mono text-[#526157]">{ticket.raisedBy.id}</p>
         </article>
 
-        <article className="rounded-xl border border-[#d9d0bf] bg-[#fffbf9] p-4 text-[#122016]">
-          <h3 className="text-xs font-bold uppercase text-[#526157]">Against User</h3>
+        <article className="rounded-[28px] bg-white p-5 text-[#122016] shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-[#526157]">Against User</h3>
           <p className="mt-2 text-sm font-semibold">{ticket.againstUser.name || "Anonymous"}</p>
           <p className="text-sm text-[#526157]">{ticket.againstUser.email}</p>
           <p className="mt-2 text-xs font-mono text-[#526157]">{ticket.againstUser.id}</p>
@@ -255,22 +303,26 @@ export default function TicketDetailsPage() {
       </div>
 
       {ticket.evidenceUrl ? (
-        <article className="rounded-xl border border-[#d9d0bf] bg-[#ebf4f9] p-4 text-[#122016]">
-          <h3 className="text-xs font-bold uppercase text-[#526157]">Evidence</h3>
+        <article className="rounded-[28px] bg-[linear-gradient(160deg,#f9fcff,#edf5ff)] p-5 text-[#122016] shadow-[0_14px_32px_-12px_rgba(26,36,6,0.26)]">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-[#526157]">Evidence</h3>
           <p className="mt-2 text-sm break-all">{ticket.evidenceUrl}</p>
           <a
             href={ticket.evidenceUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 inline-block rounded-md border border-[#1f6a8f] bg-white px-3 py-1.5 text-xs font-bold text-[#1f6a8f]"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[#1f6a8f] bg-white px-3 py-1.5 text-xs font-bold text-[#1f6a8f]"
           >
+            <ArrowUpRight className="h-3.5 w-3.5" />
             Open Evidence
           </a>
         </article>
       ) : null}
 
-      <article className="rounded-xl border border-[#d9d0bf] bg-[#f9fdf3] p-4 text-[#122016]">
-        <h3 className="text-xs font-bold uppercase text-[#526157]">Linked Agreement</h3>
+      <article className="rounded-4xl bg-white p-5 text-[#122016] shadow-[0_18px_38px_-14px_rgba(26,36,6,0.34)]">
+        <h3 className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#526157]">
+          <CircleDot className="h-3.5 w-3.5" />
+          Linked Agreement
+        </h3>
 
         {!ticket.agreement ? (
           <p className="mt-2 text-sm text-[#526157]">No agreement linked to this ticket.</p>
@@ -281,9 +333,12 @@ export default function TicketDetailsPage() {
         ) : (
           <div className="mt-3 space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+              <div className="rounded-2xl bg-[#F7F8F2] p-3">
                 <p className="text-[10px] font-bold uppercase text-[#526157]">Agreement</p>
-                <p className="mt-1 text-sm font-bold">{agreement.title}</p>
+                <Link href={`/agreements/${agreement.id}`} className="group mt-1 inline-flex items-center gap-1.5 text-sm font-bold text-[#1f4c35]">
+                  <span className="group-hover:underline">{agreement.title}</span>
+                  <ChevronRight className="h-3.5 w-3.5 opacity-45 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
+                </Link>
                 <p className="text-[10px] text-[#526157] font-mono">{agreement.id}</p>
                 <p className="mt-2 text-xs text-[#526157]">
                   Status: <span className="font-semibold text-[#122016]">{agreement.status}</span>
@@ -293,7 +348,7 @@ export default function TicketDetailsPage() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+              <div className="rounded-2xl bg-[#F7F8F2] p-3">
                 <p className="text-[10px] font-bold uppercase text-[#526157]">Parties</p>
                 <p className="mt-1 text-xs text-[#526157]">Creator</p>
                 <p className="text-sm font-medium">{agreement.creator.name || "Anonymous"}</p>
@@ -305,20 +360,20 @@ export default function TicketDetailsPage() {
             </div>
 
             {agreement.description ? (
-              <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+              <div className="rounded-2xl bg-[#F7F8F2] p-3">
                 <p className="text-[10px] font-bold uppercase text-[#526157]">Description</p>
                 <p className="mt-1 text-sm text-[#122016]">{agreement.description}</p>
               </div>
             ) : null}
 
-            <div className="rounded-lg border border-[#d9d0bf] bg-white p-3">
+            <div className="rounded-2xl bg-[#F7F8F2] p-3">
               <p className="text-[10px] font-bold uppercase text-[#526157] mb-2">Milestones ({agreement.milestones.length})</p>
               {agreement.milestones.length === 0 ? (
                 <p className="text-xs text-[#526157]">No milestones defined.</p>
               ) : (
                 <div className="space-y-2">
                   {agreement.milestones.map((milestone, index) => (
-                    <div key={milestone.id} className="rounded-md border border-[#ece6d9] bg-[#fcfbf8] p-2.5">
+                    <div key={milestone.id} className="rounded-xl bg-white p-2.5">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-semibold text-[#122016]">{index + 1}. {milestone.title}</p>
                         <span className="text-xs font-semibold text-[#1f6a42]">
