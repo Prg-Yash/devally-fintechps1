@@ -36,3 +36,5 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+apps/web/api_error.txt
+apps/web/biome_output.txt

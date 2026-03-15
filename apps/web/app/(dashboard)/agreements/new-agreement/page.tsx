@@ -2,7 +2,13 @@
 
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,9 +33,14 @@ import {
   Sparkles,
   Bot,
   Wand2,
-  BrainCircuit
+  BrainCircuit,
 } from "lucide-react";
-import { ConnectButton, useActiveAccount, useActiveWallet, useAdminWallet } from "thirdweb/react";
+import {
+  ConnectButton,
+  useActiveAccount,
+  useActiveWallet,
+  useAdminWallet,
+} from "thirdweb/react";
 import { sepolia } from "thirdweb/chains";
 import { prepareContractCall, sendAndConfirmTransaction } from "thirdweb";
 import { verifyTypedData } from "viem";
@@ -56,7 +67,11 @@ const BUTTON_PRESS = { scale: 0.98 };
 
 const maskedReveal = {
   hidden: { y: 12, opacity: 0 },
-  visible: { y: 0, opacity: 1, transition: { type: "spring" as const, stiffness: 120, damping: 20 } },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: { type: "spring" as const, stiffness: 120, damping: 20 },
+  },
 };
 
 const stagger = {
@@ -74,10 +89,13 @@ const txStepMeta: Record<TxStep, { label: string; color: string }> = {
   error: { label: "Failed", color: "bg-red-100 text-red-700" },
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_BASE_URL ?? "http://localhost:8000";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+const AI_BASE_URL =
+  process.env.NEXT_PUBLIC_AI_BASE_URL ?? "http://localhost:8000";
 
-const startOfLocalDay = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate());
+const startOfLocalDay = (value: Date) =>
+  new Date(value.getFullYear(), value.getMonth(), value.getDate());
 
 const parseDateInput = (value: string) => {
   const [year, month, day] = value.split("-").map((part) => Number(part));
@@ -95,7 +113,14 @@ const formatDateInput = (value: Date) => {
 };
 
 // ─── AI active-field type ───
-type AiActiveField = "idle" | "title" | "description" | "amount" | "dueDate" | "milestones" | "done";
+type AiActiveField =
+  | "idle"
+  | "title"
+  | "description"
+  | "amount"
+  | "dueDate"
+  | "milestones"
+  | "done";
 
 interface MilestoneInput {
   title: string;
@@ -115,11 +140,13 @@ export default function NewAgreementPage() {
   const account = useActiveAccount();
   const activeWallet = useActiveWallet();
   const adminWallet = useAdminWallet();
-  const adminAccount = activeWallet?.getAdminAccount?.() || adminWallet?.getAccount?.();
+  const adminAccount =
+    activeWallet?.getAdminAccount?.() || adminWallet?.getAccount?.();
 
   const [isFunding, setIsFunding] = useState(false);
   const [txStep, setTxStep] = useState<TxStep>("idle");
-  const [txStepDescription, setTxStepDescription] = useState("Waiting for action");
+  const [txStepDescription, setTxStepDescription] =
+    useState("Waiting for action");
 
   const [formData, setFormData] = useState({
     title: "",
@@ -131,7 +158,7 @@ export default function NewAgreementPage() {
   });
 
   const [milestones, setMilestones] = useState<MilestoneInput[]>([
-    { title: "Initial Draft", amount: "", dueDate: "" }
+    { title: "Initial Draft", amount: "", dueDate: "" },
   ]);
 
   // ─── AI Generator State ───
@@ -141,6 +168,7 @@ export default function NewAgreementPage() {
   const [aiComplexity, setAiComplexity] = useState("");
   const [aiBudgetReasoning, setAiBudgetReasoning] = useState("");
   const [aiTechStack, setAiTechStack] = useState<string[]>([]);
+  const copilotIdeaHandledRef = useRef(false);
 
   const escrowContract = useMemo(() => getEscrowContract(thirdwebClient), []);
   const pusdContract = useMemo(() => getPusdContract(thirdwebClient), []);
@@ -163,7 +191,11 @@ export default function NewAgreementPage() {
     setMilestones(milestones.filter((_, i) => i !== index));
   };
 
-  const updateMilestone = (index: number, field: keyof MilestoneInput, value: string) => {
+  const updateMilestone = (
+    index: number,
+    field: keyof MilestoneInput,
+    value: string,
+  ) => {
     const newMilestones = [...milestones];
 
     if (field === "amount") {
@@ -210,7 +242,9 @@ export default function NewAgreementPage() {
 
         const agreementDue = startOfLocalDay(parsedAgreementDue);
         if (selected.getTime() > agreementDue.getTime()) {
-          toast.error("Milestone due date cannot be later than target completion date");
+          toast.error(
+            "Milestone due date cannot be later than target completion date",
+          );
           return;
         }
       }
@@ -225,11 +259,21 @@ export default function NewAgreementPage() {
   };
 
   const todayDate = useMemo(() => startOfLocalDay(new Date()), []);
-  const todayDateString = useMemo(() => formatDateInput(todayDate), [todayDate]);
+  const todayDateString = useMemo(
+    () => formatDateInput(todayDate),
+    [todayDate],
+  );
 
-  const totalAgreementAmount = useMemo(() => parseFloat(formData.amount) || 0, [formData.amount]);
+  const totalAgreementAmount = useMemo(
+    () => parseFloat(formData.amount) || 0,
+    [formData.amount],
+  );
   const milestonesTotal = useMemo(
-    () => milestones.reduce((sum, milestone) => sum + (parseFloat(milestone.amount) || 0), 0),
+    () =>
+      milestones.reduce(
+        (sum, milestone) => sum + (parseFloat(milestone.amount) || 0),
+        0,
+      ),
     [milestones],
   );
   const unallocatedFunds = useMemo(
@@ -269,7 +313,10 @@ export default function NewAgreementPage() {
         }
 
         const milestoneDate = startOfLocalDay(parsedMilestoneDate);
-        if (milestoneDate.getTime() < todayDate.getTime() || milestoneDate.getTime() > agreementDue.getTime()) {
+        if (
+          milestoneDate.getTime() < todayDate.getTime() ||
+          milestoneDate.getTime() > agreementDue.getTime()
+        ) {
           return false;
         }
       }
@@ -278,16 +325,22 @@ export default function NewAgreementPage() {
   }, [formData.dueDate, milestones, todayDate]);
 
   const canSubmitDraft =
-    Boolean(formData.receiverEmail && formData.amount && formData.title && formData.dueDate) &&
+    Boolean(
+      formData.receiverEmail &&
+      formData.amount &&
+      formData.title &&
+      formData.dueDate,
+    ) &&
     isMilestoneTotalExact &&
     isTimelineValid;
 
   // ─── Helper: delay ───
-  const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   // ─── AI Agreement Generator ───
-  const handleAiGenerate = async () => {
-    if (!aiIdea.trim()) {
+  const handleAiGenerate = async (explicitIdea?: string) => {
+    const ideaToUse = explicitIdea || aiIdea;
+    if (!ideaToUse.trim()) {
       toast.error("Describe your project idea first");
       return;
     }
@@ -302,7 +355,7 @@ export default function NewAgreementPage() {
       const res = await fetch(`${AI_BASE_URL}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_idea: aiIdea }),
+        body: JSON.stringify({ project_idea: ideaToUse }),
       });
 
       if (!res.ok) {
@@ -316,19 +369,22 @@ export default function NewAgreementPage() {
       // 1. Title
       setAiActiveField("title");
       await delay(600);
-      setFormData(prev => ({ ...prev, title: data.title || "" }));
+      setFormData((prev) => ({ ...prev, title: data.title || "" }));
       await delay(400);
 
       // 2. Description
       setAiActiveField("description");
       await delay(600);
-      setFormData(prev => ({ ...prev, description: data.description || "" }));
+      setFormData((prev) => ({ ...prev, description: data.description || "" }));
       await delay(400);
 
       // 3. Amount
       setAiActiveField("amount");
       await delay(600);
-      setFormData(prev => ({ ...prev, amount: String(data.total_budget_pusd || "") }));
+      setFormData((prev) => ({
+        ...prev,
+        amount: String(data.total_budget_pusd || ""),
+      }));
       await delay(400);
 
       // 4. Due Date (calculate from today + estimated_duration_days)
@@ -338,7 +394,7 @@ export default function NewAgreementPage() {
         const due = new Date();
         due.setDate(due.getDate() + data.estimated_duration_days);
         const dueDateStr = due.toISOString().split("T")[0];
-        setFormData(prev => ({ ...prev, dueDate: dueDateStr }));
+        setFormData((prev) => ({ ...prev, dueDate: dueDateStr }));
       }
       await delay(400);
 
@@ -346,15 +402,17 @@ export default function NewAgreementPage() {
       setAiActiveField("milestones");
       await delay(400);
       if (data.milestones && data.milestones.length > 0) {
-        const newMilestones: MilestoneInput[] = data.milestones.map((ms: any) => {
-          const msDue = new Date();
-          msDue.setDate(msDue.getDate() + (ms.due_days || 7));
-          return {
-            title: ms.title || "",
-            amount: String(ms.amount_pusd || ""),
-            dueDate: msDue.toISOString().split("T")[0],
-          };
-        });
+        const newMilestones: MilestoneInput[] = data.milestones.map(
+          (ms: any) => {
+            const msDue = new Date();
+            msDue.setDate(msDue.getDate() + (ms.due_days || 7));
+            return {
+              title: ms.title || "",
+              amount: String(ms.amount_pusd || ""),
+              dueDate: msDue.toISOString().split("T")[0],
+            };
+          },
+        );
         setMilestones(newMilestones);
       }
       await delay(600);
@@ -371,7 +429,6 @@ export default function NewAgreementPage() {
       });
 
       setTimeout(() => setAiActiveField("idle"), 3000);
-
     } catch (error: any) {
       console.error("AI generation failed:", error);
       toast.error(error?.message || "Failed to generate agreement with AI");
@@ -380,6 +437,35 @@ export default function NewAgreementPage() {
       setIsAiGenerating(false);
     }
   };
+
+  // Support opening this page from Copilot with ?idea=... and auto-run generation once.
+  useEffect(() => {
+    if (copilotIdeaHandledRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const passedIdea = params.get("idea");
+    if (!passedIdea?.trim()) {
+      copilotIdeaHandledRef.current = true;
+      return;
+    }
+
+    copilotIdeaHandledRef.current = true;
+    setAiIdea(passedIdea);
+    toast.info("Idea received from Copilot. Auto-generating draft...", {
+      duration: 2500,
+    });
+    window.history.replaceState({}, "", "/agreements/new-agreement");
+
+    const timerId = window.setTimeout(() => {
+      void handleAiGenerate(passedIdea);
+    }, 800);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, []);
 
   // ─── Gradient border class helper ───
   const getFieldGlow = (field: AiActiveField) => {
@@ -395,7 +481,12 @@ export default function NewAgreementPage() {
       return;
     }
 
-    if (!formData.receiverEmail || !formData.amount || !formData.title || !formData.dueDate) {
+    if (
+      !formData.receiverEmail ||
+      !formData.amount ||
+      !formData.title ||
+      !formData.dueDate
+    ) {
       toast.error("Receiver email, amount, title, and due date are required");
       return;
     }
@@ -422,7 +513,10 @@ export default function NewAgreementPage() {
       status: "PENDING",
     }));
 
-    if (!normalizedMilestones.length || normalizedMilestones.some((m) => !m.title)) {
+    if (
+      !normalizedMilestones.length ||
+      normalizedMilestones.some((m) => !m.title)
+    ) {
       toast.error("Each milestone must have a title");
       return;
     }
@@ -455,7 +549,9 @@ export default function NewAgreementPage() {
     try {
       setIsFunding(true);
       setTxStep("signing");
-      setTxStepDescription("Saving draft agreement and notifying freelancer...");
+      setTxStepDescription(
+        "Saving draft agreement and notifying freelancer...",
+      );
 
       let res = await fetch(`${API_BASE_URL}/agreements/drafts`, {
         method: "POST",
@@ -483,8 +579,14 @@ export default function NewAgreementPage() {
         }
 
         const backendMessage =
-          data?.error || data?.message || (typeof data === "string" ? data : null) || raw || "Failed to create draft agreement";
-        throw new Error(`Failed to create draft agreement (${res.status}): ${backendMessage}`);
+          data?.error ||
+          data?.message ||
+          (typeof data === "string" ? data : null) ||
+          raw ||
+          "Failed to create draft agreement";
+        throw new Error(
+          `Failed to create draft agreement (${res.status}): ${backendMessage}`,
+        );
       }
 
       const receiverId =
@@ -512,7 +614,9 @@ export default function NewAgreementPage() {
       }
 
       setTxStep("verified");
-      setTxStepDescription("Draft created. Freelancer can now negotiate or approve.");
+      setTxStepDescription(
+        "Draft created. Freelancer can now negotiate or approve.",
+      );
       toast.success("Draft created and sent for freelancer review");
 
       setTimeout(() => {
@@ -535,37 +639,81 @@ export default function NewAgreementPage() {
       {/* ─── Global AI Glow Styles ─── */}
       <style jsx global>{`
         @keyframes aiGradientBorder {
-          0% { border-color: #D9F24F; box-shadow: 0 0 8px rgba(217,242,79,0.3), 0 0 20px rgba(217,242,79,0.1); }
-          25% { border-color: #a8e063; box-shadow: 0 0 12px rgba(168,224,99,0.4), 0 0 25px rgba(168,224,99,0.15); }
-          50% { border-color: #56ab2f; box-shadow: 0 0 16px rgba(86,171,47,0.4), 0 0 30px rgba(86,171,47,0.15); }
-          75% { border-color: #a8e063; box-shadow: 0 0 12px rgba(168,224,99,0.4), 0 0 25px rgba(168,224,99,0.15); }
-          100% { border-color: #D9F24F; box-shadow: 0 0 8px rgba(217,242,79,0.3), 0 0 20px rgba(217,242,79,0.1); }
+          0% {
+            border-color: #d9f24f;
+            box-shadow:
+              0 0 8px rgba(217, 242, 79, 0.3),
+              0 0 20px rgba(217, 242, 79, 0.1);
+          }
+          25% {
+            border-color: #a8e063;
+            box-shadow:
+              0 0 12px rgba(168, 224, 99, 0.4),
+              0 0 25px rgba(168, 224, 99, 0.15);
+          }
+          50% {
+            border-color: #56ab2f;
+            box-shadow:
+              0 0 16px rgba(86, 171, 47, 0.4),
+              0 0 30px rgba(86, 171, 47, 0.15);
+          }
+          75% {
+            border-color: #a8e063;
+            box-shadow:
+              0 0 12px rgba(168, 224, 99, 0.4),
+              0 0 25px rgba(168, 224, 99, 0.15);
+          }
+          100% {
+            border-color: #d9f24f;
+            box-shadow:
+              0 0 8px rgba(217, 242, 79, 0.3),
+              0 0 20px rgba(217, 242, 79, 0.1);
+          }
         }
         .ai-glow-active {
           animation: aiGradientBorder 1.5s ease-in-out infinite !important;
-          border-color: #D9F24F !important;
+          border-color: #d9f24f !important;
           border-width: 2px !important;
           border-style: solid !important;
           border-radius: 12px !important;
           transition: all 0.3s ease !important;
         }
-        .ai-glow-active input, .ai-glow-active textarea {
+        .ai-glow-active input,
+        .ai-glow-active textarea {
           border-color: transparent !important;
         }
         @keyframes aiPulseRing {
-          0% { transform: scale(1); opacity: 0.6; }
-          50% { transform: scale(1.05); opacity: 1; }
-          100% { transform: scale(1); opacity: 0.6; }
+          0% {
+            transform: scale(1);
+            opacity: 0.6;
+          }
+          50% {
+            transform: scale(1.05);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 0.6;
+          }
         }
         .ai-pulse-ring {
           animation: aiPulseRing 2s ease-in-out infinite;
         }
         @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
+          0% {
+            background-position: -200% 0;
+          }
+          100% {
+            background-position: 200% 0;
+          }
         }
         .ai-shimmer {
-          background: linear-gradient(90deg, transparent 0%, rgba(217,242,79,0.15) 50%, transparent 100%);
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(217, 242, 79, 0.15) 50%,
+            transparent 100%
+          );
           background-size: 200% 100%;
           animation: shimmer 2s linear infinite;
         }
@@ -578,7 +726,10 @@ export default function NewAgreementPage() {
         className="mx-auto max-w-6xl h-[calc(100vh-140px)] flex flex-col pt-4 overflow-hidden"
       >
         {/* ── Header ── */}
-        <motion.div variants={maskedReveal} className="shrink-0 bg-[#FAFAF9] pb-8 flex items-center justify-between border-b border-[#1A2406]/5 mb-12">
+        <motion.div
+          variants={maskedReveal}
+          className="shrink-0 bg-[#FAFAF9] pb-8 flex items-center justify-between border-b border-[#1A2406]/5 mb-12"
+        >
           <div className="space-y-1">
             <Button
               variant="ghost"
@@ -590,7 +741,10 @@ export default function NewAgreementPage() {
               Back to Agreements
             </Button>
             <h1 className="font-jakarta text-5xl tracking-[-0.05em] text-[#1A2406] font-bold">
-              Draft <span className="font-light text-[#1A2406]/30 italic">Agreement</span>
+              Draft{" "}
+              <span className="font-light text-[#1A2406]/30 italic">
+                Agreement
+              </span>
             </h1>
             <p className="font-sans text-[#1A2406]/30 text-[10px] font-bold tracking-widest uppercase">
               Secure Escrow • Global Service Standards
@@ -610,27 +764,41 @@ export default function NewAgreementPage() {
                 <div className="w-10 h-10 rounded-full bg-[#1A2406]/5 flex items-center justify-center border border-[#1A2406]/5">
                   <FileText className="w-5 h-5 text-[#1A2406]/40" />
                 </div>
-                <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">Project Identity</h2>
+                <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">
+                  Project Identity
+                </h2>
               </div>
 
               <div className="grid grid-cols-1 gap-8">
-                <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("title")}`}>
-                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Agreement Title *</Label>
+                <div
+                  className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("title")}`}
+                >
+                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">
+                    Agreement Title *
+                  </Label>
                   <Input
                     type="text"
                     placeholder="e.g., Mobile App Design"
                     value={formData.title}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, title: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setFormData({ ...formData, title: e.target.value })
+                    }
                     className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-14 text-2xl font-jakarta font-semibold placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] focus:ring-0 transition-all px-1"
                   />
                 </div>
 
-                <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("description")}`}>
-                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Project Narration (Optional)</Label>
+                <div
+                  className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("description")}`}
+                >
+                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">
+                    Project Narration (Optional)
+                  </Label>
                   <textarea
                     className="w-full bg-[#1A2406]/[0.02] rounded-3xl border border-[#1A2406]/5 p-6 text-base min-h-[140px] outline-none focus:ring-4 focus:ring-[#D9F24F]/10 focus:border-[#D9F24F]/30 transition-all font-medium text-[#1A2406]/70 leading-relaxed placeholder:text-[#1A2406]/10"
                     value={formData.description}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, description: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
                     placeholder="Briefly state deliverables and scope..."
                   ></textarea>
                 </div>
@@ -638,56 +806,87 @@ export default function NewAgreementPage() {
             </motion.div>
 
             {/* Section: Counterparty & Treasury */}
-            <motion.div variants={maskedReveal} className="space-y-8 pt-4 border-t border-[#1A2406]/5">
+            <motion.div
+              variants={maskedReveal}
+              className="space-y-8 pt-4 border-t border-[#1A2406]/5"
+            >
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-full bg-[#1A2406]/5 flex items-center justify-center border border-[#1A2406]/5">
                   <DollarSign className="w-5 h-5 text-[#1A2406]/40" />
                 </div>
-                <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">Hiring Details</h2>
+                <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">
+                  Hiring Details
+                </h2>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
                 <div className="space-y-3">
-                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Service Provider Wallet (Optional until approval)</Label>
+                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">
+                    Service Provider Wallet (Optional until approval)
+                  </Label>
                   <div className="relative">
                     <Wallet className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
                     <Input
                       type="text"
                       placeholder="0x..."
                       value={formData.freelancerAddress}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, freelancerAddress: e.target.value })}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setFormData({
+                          ...formData,
+                          freelancerAddress: e.target.value,
+                        })
+                      }
                       className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-12 font-mono text-sm placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] focus:ring-0 transition-all px-1 pr-8"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-3">
-                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Service Provider Email *</Label>
+                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">
+                    Service Provider Email *
+                  </Label>
                   <Input
                     type="email"
                     placeholder="user@example.com"
                     value={formData.receiverEmail}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, receiverEmail: e.target.value })}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setFormData({
+                        ...formData,
+                        receiverEmail: e.target.value,
+                      })
+                    }
                     className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-12 text-sm placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] focus:ring-0 transition-all px-1"
                   />
                 </div>
 
-                <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("amount")}`}>
-                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">PUSD Total Amount *</Label>
+                <div
+                  className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("amount")}`}
+                >
+                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">
+                    PUSD Total Amount *
+                  </Label>
                   <div className="relative">
-                    <span className="absolute right-0 top-1/2 -translate-y-1/2 font-jakarta font-bold text-[#1A2406]/20 text-xs">PUSD</span>
+                    <span className="absolute right-0 top-1/2 -translate-y-1/2 font-jakarta font-bold text-[#1A2406]/20 text-xs">
+                      PUSD
+                    </span>
                     <Input
                       type="number"
                       placeholder="500"
                       value={formData.amount}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, amount: e.target.value })}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setFormData({ ...formData, amount: e.target.value })
+                      }
                       className="bg-transparent border-0 border-b border-[#1A2406]/10 rounded-none h-12 text-2xl font-jakarta font-bold placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] focus:ring-0 transition-all px-1"
                     />
                   </div>
                 </div>
 
-                <div className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("dueDate")}`}>
-                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">Target Completion Date *</Label>
+                <div
+                  className={`space-y-3 rounded-xl p-1 transition-all duration-300 ${getFieldGlow("dueDate")}`}
+                >
+                  <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/30 ml-1">
+                    Target Completion Date *
+                  </Label>
                   <div className="relative">
                     <Calendar className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
                     <Input
@@ -710,20 +909,31 @@ export default function NewAgreementPage() {
 
                         const parsedNext = startOfLocalDay(parsedDate);
                         if (parsedNext.getTime() < todayDate.getTime()) {
-                          toast.error("Target completion date cannot be earlier than today");
+                          toast.error(
+                            "Target completion date cannot be earlier than today",
+                          );
                           return;
                         }
 
                         const latestMilestoneDate = milestones
                           .filter((milestone) => Boolean(milestone.dueDate))
                           .map((milestone) => parseDateInput(milestone.dueDate))
-                          .filter((milestoneDate): milestoneDate is Date => Boolean(milestoneDate))
-                          .map((milestoneDate) => startOfLocalDay(milestoneDate))
+                          .filter((milestoneDate): milestoneDate is Date =>
+                            Boolean(milestoneDate),
+                          )
+                          .map((milestoneDate) =>
+                            startOfLocalDay(milestoneDate),
+                          )
                           .sort((a, b) => a.getTime() - b.getTime())
                           .at(-1);
 
-                        if (latestMilestoneDate && parsedNext.getTime() < latestMilestoneDate.getTime()) {
-                          toast.error("Target completion date cannot be earlier than an existing milestone date");
+                        if (
+                          latestMilestoneDate &&
+                          parsedNext.getTime() < latestMilestoneDate.getTime()
+                        ) {
+                          toast.error(
+                            "Target completion date cannot be earlier than an existing milestone date",
+                          );
                           return;
                         }
 
@@ -746,10 +956,17 @@ export default function NewAgreementPage() {
                   >
                     <BrainCircuit className="w-4 h-4 text-[#D9F24F] mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/30 mb-1">AI Price Reasoning</p>
-                      <p className="text-xs text-[#1A2406]/60 leading-relaxed">{aiBudgetReasoning}</p>
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/30 mb-1">
+                        AI Price Reasoning
+                      </p>
+                      <p className="text-xs text-[#1A2406]/60 leading-relaxed">
+                        {aiBudgetReasoning}
+                      </p>
                       {aiComplexity && (
-                        <Badge variant="outline" className="mt-2 text-[8px] font-bold uppercase border-[#D9F24F]/30 text-[#1A2406]/50">
+                        <Badge
+                          variant="outline"
+                          className="mt-2 text-[8px] font-bold uppercase border-[#D9F24F]/30 text-[#1A2406]/50"
+                        >
                           {aiComplexity} complexity
                         </Badge>
                       )}
@@ -769,10 +986,16 @@ export default function NewAgreementPage() {
                   >
                     <Zap className="w-4 h-4 text-[#1A2406]/30 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/30 mb-2">Recommended Tech Stack</p>
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-[#1A2406]/30 mb-2">
+                        Recommended Tech Stack
+                      </p>
                       <div className="flex flex-wrap gap-1.5">
                         {aiTechStack.map((tech, i) => (
-                          <Badge key={i} variant="outline" className="text-[10px] font-semibold bg-white border-[#1A2406]/10 text-[#1A2406]/60 rounded-lg px-2.5 py-0.5">
+                          <Badge
+                            key={i}
+                            variant="outline"
+                            className="text-[10px] font-semibold bg-white border-[#1A2406]/10 text-[#1A2406]/60 rounded-lg px-2.5 py-0.5"
+                          >
                             {tech}
                           </Badge>
                         ))}
@@ -784,13 +1007,20 @@ export default function NewAgreementPage() {
             </motion.div>
 
             {/* Section: Milestone Ledger */}
-            <motion.div variants={maskedReveal} className={`space-y-8 pt-4 border-t border-[#1A2406]/5 rounded-2xl transition-all duration-300 ${aiActiveField === "milestones" ? "ai-shimmer" : ""}`}>
+            <motion.div
+              variants={maskedReveal}
+              className={`space-y-8 pt-4 border-t border-[#1A2406]/5 rounded-2xl transition-all duration-300 ${aiActiveField === "milestones" ? "ai-shimmer" : ""}`}
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-full bg-[#1A2406]/5 flex items-center justify-center border border-[#1A2406]/5 transition-all ${aiActiveField === "milestones" ? "ai-pulse-ring bg-[#D9F24F]/20 border-[#D9F24F]/30" : ""}`}>
+                  <div
+                    className={`w-10 h-10 rounded-full bg-[#1A2406]/5 flex items-center justify-center border border-[#1A2406]/5 transition-all ${aiActiveField === "milestones" ? "ai-pulse-ring bg-[#D9F24F]/20 border-[#D9F24F]/30" : ""}`}
+                  >
                     <Zap className="w-5 h-5 text-[#1A2406]/40" />
                   </div>
-                  <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">Payment Roadmap</h2>
+                  <h2 className="text-xl font-jakarta font-bold text-[#1A2406] tracking-tight">
+                    Payment Roadmap
+                  </h2>
                 </div>
                 <Button
                   type="button"
@@ -820,17 +1050,23 @@ export default function NewAgreementPage() {
                         </div>
                       </div>
                       <div className="md:col-span-4 space-y-2">
-                        <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">Milestone Title</Label>
+                        <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">
+                          Milestone Title
+                        </Label>
                         <Input
                           type="text"
                           placeholder="Deliverable Name"
                           value={milestone.title}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMilestone(index, "title", e.target.value)}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            updateMilestone(index, "title", e.target.value)
+                          }
                           className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none font-medium placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all"
                         />
                       </div>
                       <div className="md:col-span-3 space-y-2">
-                        <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">Amount (PUSD)</Label>
+                        <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">
+                          Amount (PUSD)
+                        </Label>
                         <div className="relative">
                           <Input
                             type="number"
@@ -838,14 +1074,22 @@ export default function NewAgreementPage() {
                             value={milestone.amount}
                             min={0}
                             max={maxAmountForMilestone(index)}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMilestone(index, "amount", e.target.value)}
+                            onChange={(
+                              e: React.ChangeEvent<HTMLInputElement>,
+                            ) =>
+                              updateMilestone(index, "amount", e.target.value)
+                            }
                             className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none font-bold placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all pr-8"
                           />
-                          <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[#1A2406]/20">PUSD</span>
+                          <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[#1A2406]/20">
+                            PUSD
+                          </span>
                         </div>
                       </div>
                       <div className="md:col-span-3 space-y-2">
-                        <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">Due Date</Label>
+                        <Label className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#1A2406]/20">
+                          Due Date
+                        </Label>
                         <div className="relative">
                           <Calendar className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20" />
                           <Input
@@ -853,7 +1097,11 @@ export default function NewAgreementPage() {
                             value={milestone.dueDate}
                             min={todayDateString}
                             max={formData.dueDate || undefined}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateMilestone(index, "dueDate", e.target.value)}
+                            onChange={(
+                              e: React.ChangeEvent<HTMLInputElement>,
+                            ) =>
+                              updateMilestone(index, "dueDate", e.target.value)
+                            }
                             className="h-10 bg-transparent border-0 border-b border-[#1A2406]/5 rounded-none text-sm placeholder:text-[#1A2406]/10 focus:border-[#D9F24F] transition-all pr-8"
                           />
                         </div>
@@ -876,60 +1124,93 @@ export default function NewAgreementPage() {
               </div>
 
               <div className="flex items-center justify-between px-6 py-4 rounded-3xl bg-[#1A2406]/[0.02] border border-dashed border-[#1A2406]/10">
-                <span className="text-[10px] font-bold text-[#1A2406]/30 uppercase tracking-[0.2em]">Escrow Balance Reconciliation</span>
+                <span className="text-[10px] font-bold text-[#1A2406]/30 uppercase tracking-[0.2em]">
+                  Escrow Balance Reconciliation
+                </span>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase mb-0.5">Unallocated Funds</p>
-                    <p className={`text-xl font-jakarta font-bold ${milestonesTotal > totalAgreementAmount
-                        ? "text-red-500"
-                        : "text-[#1A2406]"
-                      }`}>
-                      {Math.max(0, unallocatedFunds)} <span className="text-xs text-[#1A2406]/20 font-bold uppercase ml-1">PUSD</span>
+                    <p className="text-[9px] font-bold text-[#1A2406]/20 uppercase mb-0.5">
+                      Unallocated Funds
+                    </p>
+                    <p
+                      className={`text-xl font-jakarta font-bold ${
+                        milestonesTotal > totalAgreementAmount
+                          ? "text-red-500"
+                          : "text-[#1A2406]"
+                      }`}
+                    >
+                      {Math.max(0, unallocatedFunds)}{" "}
+                      <span className="text-xs text-[#1A2406]/20 font-bold uppercase ml-1">
+                        PUSD
+                      </span>
                     </p>
                   </div>
                 </div>
               </div>
 
               {!isMilestoneTotalExact && (
-                <p className="text-xs font-semibold text-red-500">Milestone total must match agreement total.</p>
+                <p className="text-xs font-semibold text-red-500">
+                  Milestone total must match agreement total.
+                </p>
               )}
 
               {!isTimelineValid && (
-                <p className="text-xs font-semibold text-red-500">Please align milestone dates within today and target completion date.</p>
+                <p className="text-xs font-semibold text-red-500">
+                  Please align milestone dates within today and target
+                  completion date.
+                </p>
               )}
             </motion.div>
           </div>
 
           {/* ── Right Column: AI Generator + Wallet Sidebar ── */}
           <div className="lg:col-span-4 shrink-0 space-y-6 lg:h-full lg:flex lg:flex-col overflow-y-auto scrollbar-none">
-
             {/* ─── AI Agreement Generator Card ─── */}
             <motion.div variants={maskedReveal} className="flex flex-col">
-              <Card className={`border-0 rounded-[32px] overflow-hidden shadow-2xl transition-all duration-500 ${isAiGenerating
-                  ? "bg-gradient-to-br from-[#1A2406] via-[#2a3a10] to-[#1A2406]"
-                  : "bg-gradient-to-br from-[#D9F24F] via-[#c4db47] to-[#a8c03a]"
-                }`}>
+              <Card
+                className={`border-0 rounded-[32px] overflow-hidden shadow-2xl transition-all duration-500 ${
+                  isAiGenerating
+                    ? "bg-gradient-to-br from-[#1A2406] via-[#2a3a10] to-[#1A2406]"
+                    : "bg-gradient-to-br from-[#D9F24F] via-[#c4db47] to-[#a8c03a]"
+                }`}
+              >
                 <CardContent className="p-6 space-y-4">
                   {/* Header */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className={`p-2 rounded-xl ${isAiGenerating ? "bg-[#D9F24F]/20" : "bg-[#1A2406]/10"}`}>
-                        <Wand2 className={`w-4 h-4 ${isAiGenerating ? "text-[#D9F24F] animate-spin" : "text-[#1A2406]"}`} />
+                      <div
+                        className={`p-2 rounded-xl ${isAiGenerating ? "bg-[#D9F24F]/20" : "bg-[#1A2406]/10"}`}
+                      >
+                        <Wand2
+                          className={`w-4 h-4 ${isAiGenerating ? "text-[#D9F24F] animate-spin" : "text-[#1A2406]"}`}
+                        />
                       </div>
                       <div>
-                        <p className={`text-xs font-bold font-jakarta ${isAiGenerating ? "text-white" : "text-[#1A2406]"}`}>
+                        <p
+                          className={`text-xs font-bold font-jakarta ${isAiGenerating ? "text-white" : "text-[#1A2406]"}`}
+                        >
                           AI Agreement Generator
                         </p>
-                        <p className={`text-[8px] font-bold uppercase tracking-widest ${isAiGenerating ? "text-white/40" : "text-[#1A2406]/40"}`}>
+                        <p
+                          className={`text-[8px] font-bold uppercase tracking-widest ${isAiGenerating ? "text-white/40" : "text-[#1A2406]/40"}`}
+                        >
                           Powered by Qwen3-32B
                         </p>
                       </div>
                     </div>
-                    <Badge variant="outline" className={`border-none text-[7px] font-black uppercase px-2 py-0 ${isAiGenerating
-                        ? "bg-[#D9F24F]/10 text-[#D9F24F]"
-                        : "bg-[#1A2406]/10 text-[#1A2406]/60"
-                      }`}>
-                      {isAiGenerating ? "Generating..." : aiActiveField === "done" ? "✓ Done" : "Ready"}
+                    <Badge
+                      variant="outline"
+                      className={`border-none text-[7px] font-black uppercase px-2 py-0 ${
+                        isAiGenerating
+                          ? "bg-[#D9F24F]/10 text-[#D9F24F]"
+                          : "bg-[#1A2406]/10 text-[#1A2406]/60"
+                      }`}
+                    >
+                      {isAiGenerating
+                        ? "Generating..."
+                        : aiActiveField === "done"
+                          ? "✓ Done"
+                          : "Ready"}
                     </Badge>
                   </div>
 
@@ -938,12 +1219,13 @@ export default function NewAgreementPage() {
                     <textarea
                       value={aiIdea}
                       onChange={(e) => setAiIdea(e.target.value)}
-                      placeholder="Describe your project in one line...&#10;e.g., &quot;Build me a SaaS dashboard with auth and analytics&quot;"
+                      placeholder='Describe your project in one line...&#10;e.g., "Build me a SaaS dashboard with auth and analytics"'
                       disabled={isAiGenerating}
-                      className={`w-full rounded-2xl border p-4 text-sm min-h-[80px] outline-none resize-none transition-all font-medium leading-relaxed ${isAiGenerating
+                      className={`w-full rounded-2xl border p-4 text-sm min-h-[80px] outline-none resize-none transition-all font-medium leading-relaxed ${
+                        isAiGenerating
                           ? "bg-white/5 border-white/10 text-white/60 placeholder:text-white/20"
                           : "bg-white/60 border-[#1A2406]/10 text-[#1A2406] placeholder:text-[#1A2406]/30 focus:ring-4 focus:ring-[#1A2406]/5 focus:border-[#1A2406]/20"
-                        }`}
+                      }`}
                     />
                   </div>
 
@@ -952,10 +1234,11 @@ export default function NewAgreementPage() {
                     <Button
                       onClick={handleAiGenerate}
                       disabled={isAiGenerating || !aiIdea.trim()}
-                      className={`w-full h-12 rounded-2xl font-jakarta font-bold text-xs transition-all active:scale-95 disabled:opacity-40 ${isAiGenerating
+                      className={`w-full h-12 rounded-2xl font-jakarta font-bold text-xs transition-all active:scale-95 disabled:opacity-40 ${
+                        isAiGenerating
                           ? "bg-[#D9F24F] text-[#1A2406]"
                           : "bg-[#1A2406] text-[#D9F24F] hover:bg-[#2a3a10] shadow-lg shadow-[#1A2406]/20"
-                        }`}
+                      }`}
                     >
                       {isAiGenerating ? (
                         <span className="flex items-center gap-2">
@@ -982,25 +1265,53 @@ export default function NewAgreementPage() {
                       >
                         {[
                           { field: "title" as const, label: "Project Title" },
-                          { field: "description" as const, label: "Description" },
+                          {
+                            field: "description" as const,
+                            label: "Description",
+                          },
                           { field: "amount" as const, label: "Market Price" },
                           { field: "dueDate" as const, label: "Timeline" },
                           { field: "milestones" as const, label: "Milestones" },
                         ].map((step) => {
-                          const fieldOrder: AiActiveField[] = ["title", "description", "amount", "dueDate", "milestones"];
+                          const fieldOrder: AiActiveField[] = [
+                            "title",
+                            "description",
+                            "amount",
+                            "dueDate",
+                            "milestones",
+                          ];
                           const currentIdx = fieldOrder.indexOf(aiActiveField);
                           const stepIdx = fieldOrder.indexOf(step.field);
                           const isActive = aiActiveField === step.field;
                           const isDone = currentIdx > stepIdx;
 
                           return (
-                            <div key={step.field} className={`flex items-center gap-2.5 px-3 py-1.5 rounded-xl transition-all ${isActive ? "bg-[#D9F24F]/10" : ""
-                              }`}>
-                              <div className={`w-1.5 h-1.5 rounded-full transition-all ${isDone ? "bg-[#D9F24F]" : isActive ? "bg-[#D9F24F] animate-pulse" : "bg-white/10"
-                                }`} />
-                              <span className={`text-[10px] font-bold uppercase tracking-widest transition-all ${isDone ? "text-[#D9F24F]/80" : isActive ? "text-white" : "text-white/20"
-                                }`}>
-                                {isDone ? "✓ " : ""}{step.label}
+                            <div
+                              key={step.field}
+                              className={`flex items-center gap-2.5 px-3 py-1.5 rounded-xl transition-all ${
+                                isActive ? "bg-[#D9F24F]/10" : ""
+                              }`}
+                            >
+                              <div
+                                className={`w-1.5 h-1.5 rounded-full transition-all ${
+                                  isDone
+                                    ? "bg-[#D9F24F]"
+                                    : isActive
+                                      ? "bg-[#D9F24F] animate-pulse"
+                                      : "bg-white/10"
+                                }`}
+                              />
+                              <span
+                                className={`text-[10px] font-bold uppercase tracking-widest transition-all ${
+                                  isDone
+                                    ? "text-[#D9F24F]/80"
+                                    : isActive
+                                      ? "text-white"
+                                      : "text-white/20"
+                                }`}
+                              >
+                                {isDone ? "✓ " : ""}
+                                {step.label}
                               </span>
                             </div>
                           );
@@ -1019,25 +1330,38 @@ export default function NewAgreementPage() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
                       <div className="w-1.5 h-1.5 rounded-full bg-[#D9F24F] animate-pulse" />
-                      <span className="text-[8px] font-bold uppercase tracking-widest text-white/40 leading-none">Smart Node</span>
+                      <span className="text-[8px] font-bold uppercase tracking-widest text-white/40 leading-none">
+                        Smart Node
+                      </span>
                     </div>
-                    <Badge variant="outline" className="bg-[#D9F24F]/10 text-[#D9F24F] border-none text-[7px] font-black uppercase px-2 py-0">
+                    <Badge
+                      variant="outline"
+                      className="bg-[#D9F24F]/10 text-[#D9F24F] border-none text-[7px] font-black uppercase px-2 py-0"
+                    >
                       {isSmartAccountMode ? "AA" : "EOA"}
                     </Badge>
                   </div>
 
                   <div className="grid grid-cols-1 gap-2">
                     <div className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
-                      <span className="text-[8px] font-bold uppercase tracking-widest text-white/20">Wallet (Optional)</span>
+                      <span className="text-[8px] font-bold uppercase tracking-widest text-white/20">
+                        Wallet (Optional)
+                      </span>
                       <p className="text-[10px] font-mono font-bold text-[#D9F24F]">
-                        {smartAccountAddress ? shortAddress(smartAccountAddress) : "OFF"}
+                        {smartAccountAddress
+                          ? shortAddress(smartAccountAddress)
+                          : "OFF"}
                       </p>
                     </div>
 
                     <div className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
-                      <span className="text-[8px] font-bold uppercase tracking-widest text-white/20">Signer</span>
+                      <span className="text-[8px] font-bold uppercase tracking-widest text-white/20">
+                        Signer
+                      </span>
                       <p className="text-[10px] font-mono font-bold text-white/60">
-                        {permitOwnerAddress ? shortAddress(permitOwnerAddress) : "OFF"}
+                        {permitOwnerAddress
+                          ? shortAddress(permitOwnerAddress)
+                          : "OFF"}
                       </p>
                     </div>
                   </div>
