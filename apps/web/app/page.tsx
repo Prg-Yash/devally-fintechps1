@@ -148,7 +148,7 @@ const Navbar = () => {
 
       <div className="flex items-center gap-2">
         <Activity className="h-6 w-6" />
-        <span className="text-xl font-bold tracking-tight font-jakarta">Nexus Escrow</span>
+        <span className="text-xl font-bold tracking-tight font-jakarta">PayCrow</span>
       </div>
 
       <div className="hidden md:flex items-center gap-4">
@@ -468,7 +468,7 @@ export default function Home() {
       {/* --- Marquee Social Proof --- */}
       <section className="py-12 border-b border-black/5 flex flex-col items-center overflow-hidden">
         <span className="text-sm font-medium bg-black/5 rounded-full px-6 py-2 mb-8 inline-block">
-          Join over 500 cross-border teams already growing with Nexus Escrow.
+          Join over 500 cross-border teams already growing with PayCrow.
         </span>
         <div className="w-full overflow-hidden whitespace-nowrap mask-image-linear">
           <motion.div
@@ -632,13 +632,13 @@ export default function Home() {
           <motion.div variants={maskedRevealVariant} className="flex flex-col justify-center">
             <FAQItem
               question="Smart Contract Security"
-              answer="Our escrow smart contracts are fully open-source and have been audited by tier-1 security firms. The funds are non-custodial; neither Nexus nor any third party can access the escrowed stablecoins without the explicit execution of your milestone conditions."
+              answer="Our escrow smart contracts are fully open-source and have been audited by tier-1 security firms. The funds are non-custodial; neither PayCrow nor any third party can access the escrowed stablecoins without the explicit execution of your milestone conditions."
               isOpen={openFAQ === 0}
               onClick={() => setOpenFAQ(openFAQ === 0 ? -1 : 0)}
             />
             <FAQItem
               question="Jurisdictional Compliance"
-              answer="By utilizing decentralized stablecoins (USDC) and strictly executing programmatic transfers based on on-chain proofs, Nexus Escrow operates agnostically across borders, severely reducing international banking compliance roadblocks."
+              answer="By utilizing decentralized stablecoins (USDC) and strictly executing programmatic transfers based on on-chain proofs, PayCrow operates agnostically across borders, severely reducing international banking compliance roadblocks."
               isOpen={openFAQ === 1}
               onClick={() => setOpenFAQ(openFAQ === 1 ? -1 : 1)}
             />

@@ -210,3 +210,122 @@ export async function sendDeleteAccountVerificationEmail({
     throw error;
   }
 }
+
+export async function sendNotificationEmail({
+  to,
+  subject,
+  title,
+  message,
+  actionUrl,
+  actionLabel,
+}: {
+  to: string;
+  subject: string;
+  title: string;
+  message: string;
+  actionUrl?: string;
+  actionLabel?: string;
+}) {
+  const mailOptions = {
+    from: process.env.GMAIL_ADDRESS,
+    to,
+    subject,
+    html: `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .card { border: 1px solid #eee; border-radius: 8px; padding: 16px; margin-top: 12px; }
+            .button { display: inline-block; padding: 12px 24px; background-color: #1a2406; color: #d9f24f !important; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: 700; }
+            .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h2>${title}</h2>
+            <div class="card">
+              <p>${message}</p>
+            </div>
+            ${actionUrl
+              ? `<a href="${actionUrl}" class="button">${actionLabel || "Open Agreement"}</a>
+                 <p>Or copy and paste this link in your browser:</p>
+                 <p style="word-break: break-all;">${actionUrl}</p>`
+              : ""}
+            <div class="footer">
+              <p>This is an automated notification from Devally Fintech.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email] Notification email sent to ${to} with subject "${subject}"`);
+  } catch (error) {
+    console.error("Error sending notification email:", error);
+    throw error;
+  }
+}
+
+export async function sendAgreementDraftEmail({
+  to,
+  freelancerName,
+  clientName,
+  agreementTitle,
+  agreementLink,
+}: {
+  to: string;
+  freelancerName?: string;
+  clientName: string;
+  agreementTitle: string;
+  agreementLink: string;
+}) {
+  const mailOptions = {
+    from: process.env.GMAIL_ADDRESS,
+    to,
+    subject: "Devally: New Draft Agreement Waiting for Your Review",
+    html: `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .button { display: inline-block; padding: 12px 24px; background-color: #1a2406; color: #d9f24f !important; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: 700; }
+            .card { border: 1px solid #eee; border-radius: 8px; padding: 16px; margin-top: 12px; }
+            .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h2>New Draft Agreement Shared</h2>
+            <p>Hello ${freelancerName || "there"},</p>
+            <p><strong>${clientName}</strong> has shared a new agreement draft with you for review and confirmation.</p>
+            <div class="card">
+              <p><strong>Agreement:</strong> ${agreementTitle}</p>
+              <p>Please review the draft, request changes if needed, and approve when ready.</p>
+            </div>
+            <a href="${agreementLink}" class="button">Review Draft Agreement</a>
+            <p>Or copy and paste this link in your browser:</p>
+            <p style="word-break: break-all;">${agreementLink}</p>
+            <div class="footer">
+              <p>This is an automated workflow email from Devally Fintech.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email] Draft agreement email sent to ${to} for \"${agreementTitle}\"`);
+  } catch (error) {
+    console.error("Error sending draft agreement email:", error);
+    throw error;
+  }
+}

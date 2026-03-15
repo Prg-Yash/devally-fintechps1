@@ -39,6 +39,7 @@ interface Ticket {
   description: string;
   reason: string;
   status: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   evidenceUrl?: string | null;
   createdAt: string;
   raisedBy: { id: string; name: string; email: string };
@@ -93,6 +94,7 @@ export default function TicketsPage() {
     title: "",
     description: "",
     reason: "NON_PAYMENT",
+    severity: "LOW" as const,
     againstUserEmail: "",
     agreementId: "",
     evidenceUrl: "",
@@ -208,6 +210,7 @@ export default function TicketsPage() {
           title: formData.title,
           description: formData.description,
           reason: formData.reason,
+          severity: formData.severity,
           raisedById: session.user.id,
           againstUserEmail: formData.againstUserEmail,
           agreementId: formData.agreementId || undefined,
@@ -225,6 +228,7 @@ export default function TicketsPage() {
         title: "",
         description: "",
         reason: "NON_PAYMENT",
+        severity: "LOW",
         againstUserEmail: "",
         agreementId: "",
         evidenceUrl: "",
@@ -265,6 +269,21 @@ export default function TicketsPage() {
     }
   };
 
+  const getSeverityStyle = (severity: string) => {
+    switch (severity.toUpperCase()) {
+      case "LOW":
+        return "bg-emerald-50 text-emerald-700 border-emerald-100";
+      case "MEDIUM":
+        return "bg-amber-50 text-amber-700 border-amber-100";
+      case "HIGH":
+        return "bg-orange-50 text-orange-700 border-orange-100";
+      case "CRITICAL":
+        return "bg-rose-50 text-rose-700 border-rose-100 font-black animate-pulse";
+      default:
+        return "bg-gray-50 text-gray-600";
+    }
+  };
+
   const TicketCard = ({ ticket, mode }: { ticket: Ticket; mode: "raised" | "received" }) => (
     <motion.div variants={itemVariants} whileHover={HOVER_SCALE}>
       <Card className="group relative bg-white/40 backdrop-blur-xl border border-white/60 rounded-[28px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:border-[#1A2406]/10 transition-all duration-500">
@@ -277,6 +296,9 @@ export default function TicketsPage() {
                 <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 ${getStatusStyle(ticket.status)}`}>
                   {getStatusIcon(ticket.status)}
                   {ticket.status}
+                </Badge>
+                <Badge variant="outline" className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase ${getSeverityStyle(ticket.severity)}`}>
+                  {ticket.severity}
                 </Badge>
                 <span className="text-[10px] font-mono text-[#1A2406]/20 font-bold uppercase tracking-widest">#{ticket.id.slice(-6)}</span>
               </div>
@@ -390,11 +412,35 @@ export default function TicketsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="title" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Title *</Label>
-                    <Input id="title" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="Brief non-compliance summary" />
+                    <Input id="title" type="text" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.title} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, title: e.target.value })} placeholder="Brief non-compliance summary" />
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="againstUserEmail" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Accused User Email *</Label>
-                    <Input id="againstUserEmail" type="email" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.againstUserEmail} onChange={(e) => setFormData({ ...formData, againstUserEmail: e.target.value })} readOnly={Boolean(formData.agreementId)} placeholder="user@example.com" />
+                    <Input id="againstUserEmail" type="email" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.againstUserEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, againstUserEmail: e.target.value })} readOnly={Boolean(formData.agreementId)} placeholder="user@example.com" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reason" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Breach Reason *</Label>
+                    <Input id="reason" type="text" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.reason} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, reason: e.target.value.toUpperCase() })} placeholder="e.g. NON_PAYMENT" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="severity" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Severity Level *</Label>
+                    <div className="relative">
+                      <select 
+                        id="severity" 
+                        className="w-full h-11 rounded-lg border border-black/[0.1] bg-white px-3 text-sm appearance-none outline-none focus:ring-1 focus:ring-[#1A2406]/10 font-bold" 
+                        value={formData.severity} 
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFormData({ ...formData, severity: e.target.value as any })}
+                      >
+                        <option value="LOW">LOW</option>
+                        <option value="MEDIUM">MEDIUM</option>
+                        <option value="HIGH">HIGH</option>
+                        <option value="CRITICAL">CRITICAL</option>
+                      </select>
+                      <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A2406]/20 rotate-90 pointer-events-none" />
+                    </div>
                   </div>
                 </div>
 
@@ -409,11 +455,11 @@ export default function TicketsPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="agreementSelect" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Agreement</Label>
+                    <Label htmlFor="agreementSelect" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Linked Agreement (Optional)</Label>
                     <div className="relative">
-                      <select id="agreementSelect" className="w-full h-11 rounded-lg border border-black/[0.1] bg-white px-3 text-sm appearance-none outline-none focus:ring-1 focus:ring-[#1A2406]/10" value={formData.agreementId} onChange={(e) => handleAgreementChange(e.target.value)}>
+                      <select id="agreementSelect" className="w-full h-11 rounded-lg border border-black/[0.1] bg-white px-3 text-sm appearance-none outline-none focus:ring-1 focus:ring-[#1A2406]/10" value={formData.agreementId} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleAgreementChange(e.target.value)}>
                         <option value="">Independent Dispute</option>
                         {agreements.map((agreement) => (
                           <option key={agreement.id} value={agreement.id}>{agreement.title}</option>
@@ -422,15 +468,11 @@ export default function TicketsPage() {
                       <Plus className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#1A2406]/20 pointer-events-none" />
                     </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="reason" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Reason *</Label>
-                    <Input id="reason" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value.toUpperCase() })} placeholder="e.g. NON_PAYMENT" />
-                  </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <Label htmlFor="evidenceUrl" className="text-[10px] font-bold uppercase tracking-widest text-[#1A2406]/40">Evidence Link</Label>
-                  <Input id="evidenceUrl" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.evidenceUrl} onChange={(e) => setFormData({ ...formData, evidenceUrl: e.target.value })} placeholder="https://..." />
+                  <Input id="evidenceUrl" type="url" className="rounded-lg border-black/[0.1] bg-white h-11 text-sm focus-visible:ring-[#1A2406]/5" value={formData.evidenceUrl} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, evidenceUrl: e.target.value })} placeholder="https://..." />
                 </div>
 
                 <motion.div whileTap={BUTTON_PRESS}>
@@ -516,10 +558,15 @@ export default function TicketsPage() {
             <div className="flex flex-col">
               <div className="bg-[#1A2406] p-6 text-white">
                 <div className="flex items-center justify-between mb-2">
-                  <Badge className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase border-none ${getStatusStyle(selectedTicket.status)}`}>
-                    {selectedTicket.status}
-                  </Badge>
-                  <span className="text-[10px] font-mono text-white/30 uppercase tracking-[0.2em]">Audit Report</span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase border-none ${getStatusStyle(selectedTicket.status)}`}>
+                      {selectedTicket.status}
+                    </Badge>
+                    <Badge variant="outline" className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase border-none ${getSeverityStyle(selectedTicket.severity)}`}>
+                      {selectedTicket.severity}
+                    </Badge>
+                    <span className="text-[10px] font-mono text-white/30 uppercase tracking-[0.2em] ml-auto">Audit Report</span>
+                  </div>
                 </div>
                 <DialogTitle className="text-xl font-jakarta font-bold tracking-tight">{selectedTicket.title}</DialogTitle>
                 <DialogDescription className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-1">

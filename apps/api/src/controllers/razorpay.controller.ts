@@ -2,19 +2,45 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import prisma from '../config/prisma';
 import { razorpay } from '../config/razorpay';
+import { distributePccToWallet, getPccDistributorContractAddress } from '../config/pcc';
+import { notifyUser } from '../config/notification-service';
+
+const INR_TO_PCC_RATE = Number(process.env.INR_TO_PCC_RATE ?? '1');
+
+export const getPccConfig = async (_req: Request, res: Response) => {
+  try {
+    return res.json({
+      contractAddress: getPccDistributorContractAddress() ?? null,
+      conversionRate: INR_TO_PCC_RATE,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+};
 
 export const createOrder = async (req: Request, res: Response) => {
   try {
-    const { amount, userId } = req.body;
+    const { amount, userId, walletAddress } = req.body;
 
-    if (!amount || !userId) {
-      return res.status(400).json({ error: 'amount and userId are required' });
+    if (!amount || !userId || !walletAddress) {
+      return res.status(400).json({ error: 'amount, userId, and walletAddress are required' });
     }
+
+    if (Number(amount) <= 0) {
+      return res.status(400).json({ error: 'amount must be greater than 0' });
+    }
+
+    const pccAmount = Number(amount) * INR_TO_PCC_RATE;
 
     const options = {
       amount: Math.round(amount * 100), // Convert INR to paise
       currency: 'INR',
       receipt: `receipt_${Date.now()}`,
+      notes: {
+        walletAddress,
+        conversionType: 'INR_TO_PCC',
+        pccAmount: pccAmount.toFixed(2),
+      },
     };
 
     const order = await razorpay.orders.create(options);
@@ -33,9 +59,21 @@ export const createOrder = async (req: Request, res: Response) => {
       },
     });
 
+    await notifyUser({
+      userId,
+      title: 'Stable-coin purchase initiated',
+      message: `Your order ${order.id} for INR ${Number(amount).toFixed(2)} was created. Complete payment to receive PCC.`,
+      type: 'PURCHASE',
+      entityType: 'purchase',
+      entityId: order.id,
+      emailSubject: 'Devally: PCC purchase initiated',
+    });
+
     res.json({
       orderId: order.id,
       amount: order.amount,
+      pccAmount,
+      conversionRate: INR_TO_PCC_RATE,
       keyId: process.env.RAZORPAY_KEY_ID,
     });
   } catch (error: any) {
@@ -76,7 +114,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
       await prisma.purchase.update({
         where: { razorpayOrderId: orderId },
         data: {
-          status: 'SUCCESS',
+          status: 'PAYMENT_VERIFIED',
           razorpayPaymentId: paymentId,
         },
       });
@@ -93,7 +131,15 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
 export const verifyPayment = async (req: Request, res: Response) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, walletAddress } = req.body;
+
+    if (!walletAddress) {
+      return res.status(400).json({ message: 'walletAddress is required' });
+    }
+
+    if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+      return res.status(400).json({ message: 'Invalid walletAddress format' });
+    }
 
     const sign = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSign = crypto
@@ -102,21 +148,66 @@ export const verifyPayment = async (req: Request, res: Response) => {
       .digest("hex");
 
     if (razorpay_signature === expectedSign) {
+      const existingPurchase = await prisma.purchase.findUnique({
+        where: { razorpayOrderId: razorpay_order_id },
+      });
+
+      if (!existingPurchase) {
+        return res.status(404).json({ message: 'Purchase not found for this order id' });
+      }
+
+      if (existingPurchase.status === 'COMPLETED') {
+        return res.status(200).json({ message: 'Payment already verified and PCC already delivered' });
+      }
+
+      const pccAmount = existingPurchase.amount * INR_TO_PCC_RATE;
+
       // Payment is authentic, update the DB synchronously
       await prisma.purchase.update({
         where: { razorpayOrderId: razorpay_order_id },
         data: {
-          status: 'SUCCESS',
+          status: 'PAYMENT_VERIFIED',
           razorpayPaymentId: razorpay_payment_id,
         },
       });
 
+      const txHash = await distributePccToWallet(walletAddress as `0x${string}`, pccAmount);
+
+      await prisma.purchase.update({
+        where: { razorpayOrderId: razorpay_order_id },
+        data: {
+          status: 'COMPLETED',
+          razorpayPaymentId: razorpay_payment_id,
+        },
+      });
+
+      await notifyUser({
+        userId: existingPurchase.userId,
+        title: 'Stable-coin purchase completed',
+        message: `Your payment is verified and PCC has been transferred to ${walletAddress}.`,
+        type: 'PURCHASE',
+        entityType: 'purchase',
+        entityId: existingPurchase.id,
+        emailSubject: 'Devally: PCC delivered to your wallet',
+      });
+
       console.log(`[Frontend Verification] Payment Done! Order: ${razorpay_order_id}`);
-      return res.status(200).json({ message: "Payment verified successfully" });
+      return res.status(200).json({
+        message: 'Payment verified and PCC transferred successfully',
+        txHash,
+        contractAddress: getPccDistributorContractAddress() ?? null,
+      });
     } else {
       return res.status(400).json({ message: "Invalid signature sent!" });
     }
   } catch (error: any) {
+    const maybeOrderId = req.body?.razorpay_order_id;
+    if (maybeOrderId) {
+      await prisma.purchase.updateMany({
+        where: { razorpayOrderId: maybeOrderId, status: { not: 'COMPLETED' } },
+        data: { status: 'TRANSFER_FAILED' },
+      });
+    }
     console.error("Error verifying payment:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
@@ -144,7 +235,17 @@ export const getUserPurchases = async (req: Request, res: Response) => {
       },
     });
 
-    res.json({ purchases });
+    const enriched = purchases.map((purchase) => {
+      const pccAmount = purchase.amount * INR_TO_PCC_RATE;
+      return {
+        ...purchase,
+        pccAmount,
+        conversionRate: INR_TO_PCC_RATE,
+        conversionType: 'INR_TO_PCC',
+      };
+    });
+
+    res.json({ purchases: enriched });
   } catch (error: any) {
     console.error('Error fetching purchases:', error);
     res.status(500).json({ error: error?.message || 'Internal server error' });

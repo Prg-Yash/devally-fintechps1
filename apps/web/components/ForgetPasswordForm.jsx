@@ -36,9 +36,9 @@ const ForgetPasswordForm = () => {
     await authClient.requestPasswordReset(
       { ...data, redirectTo: "/reset-password" },
       {
-        onError: (error) => {
-          toast.error(error.error.message || "Failed to send reset email")
-          console.error("Reset password error:", error)
+        onError: (ctx) => {
+          console.error("Reset password error:", ctx)
+          toast.error(ctx.error?.message || "Failed to send reset email")
         },
         onSuccess: () => {
           toast.success("Password reset email sent! Please check your email.")

@@ -17,18 +17,22 @@ contract PayCrowEscrow is ReentrancyGuard {
         address freelancer;
         uint256 totalAmount;
         uint256 releasedAmount;
+        uint256 clientRefId;
         bool isFunded;
         bool isCompleted;
     }
 
     mapping(uint256 => Agreement) public agreements;
+    // Mapping helper: (client, off-chain reference id) -> agreementId + 1
+    mapping(address => mapping(uint256 => uint256)) private agreementIdByClientRef;
     uint256 public nextAgreementId;
 
     event AgreementCreated(
         uint256 indexed id,
         address indexed client,
         address indexed freelancer,
-        uint256 amount
+        uint256 amount,
+        uint256 clientRefId
     );
     event FundsReleased(uint256 indexed id, uint256 amount);
     event AgreementClosed(uint256 indexed id);
@@ -36,6 +40,61 @@ contract PayCrowEscrow is ReentrancyGuard {
     constructor(address _tokenAddress) {
         require(_tokenAddress != address(0), "Invalid token address");
         token = IERC20(_tokenAddress);
+    }
+
+    function _createAndFundAgreement(
+        address _client,
+        address _freelancer,
+        uint256 _amount,
+        uint256 _deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s,
+        uint256 _clientRefId
+    ) internal returns (uint256 agreementId) {
+        require(_amount > 0, "Amount must be > 0");
+        require(_freelancer != address(0), "Invalid freelancer");
+
+        // 1. Call permit on your custom PayCrowUSD contract
+        // This validates the signature and sets the allowance
+        IERC20Permit(address(token)).permit(
+            _client,
+            address(this),
+            _amount,
+            _deadline,
+            v,
+            r,
+            s
+        );
+
+        // 2. Pull the funds into this contract
+        token.safeTransferFrom(_client, address(this), _amount);
+
+        // 3. Store the agreement details
+        agreementId = nextAgreementId;
+        agreements[agreementId] = Agreement({
+            client: _client,
+            freelancer: _freelancer,
+            totalAmount: _amount,
+            releasedAmount: 0,
+            clientRefId: _clientRefId,
+            isFunded: true,
+            isCompleted: false
+        });
+
+        if (_clientRefId != 0) {
+            agreementIdByClientRef[_client][_clientRefId] = agreementId + 1;
+        }
+
+        emit AgreementCreated(
+            agreementId,
+            _client,
+            _freelancer,
+            _amount,
+            _clientRefId
+        );
+
+        nextAgreementId = agreementId + 1;
     }
 
     /**
@@ -49,41 +108,59 @@ contract PayCrowEscrow is ReentrancyGuard {
         bytes32 r,
         bytes32 s
     ) external nonReentrant {
-        require(_amount > 0, "Amount must be > 0");
-        require(_freelancer != address(0), "Invalid freelancer");
-
-        // 1. Call permit on your custom PayCrowUSD contract
-        // This validates the signature and sets the allowance
-        IERC20Permit(address(token)).permit(
+        _createAndFundAgreement(
             msg.sender,
-            address(this),
+            _freelancer,
             _amount,
             _deadline,
             v,
             r,
-            s
+            s,
+            0
+        );
+    }
+
+    /**
+     * @notice Create+fund an agreement with a client-provided reference id for deterministic
+     *         mapping between off-chain and on-chain records.
+     */
+    function createAndFundAgreementWithClientRef(
+        uint256 _clientRefId,
+        address _freelancer,
+        uint256 _amount,
+        uint256 _deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external nonReentrant returns (uint256 agreementId) {
+        require(_clientRefId > 0, "clientRefId must be > 0");
+        require(
+            agreementIdByClientRef[msg.sender][_clientRefId] == 0,
+            "clientRefId already used"
         );
 
-        // 2. Pull the funds into this contract
-        token.safeTransferFrom(msg.sender, address(this), _amount);
-
-        // 3. Store the agreement details
-        agreements[nextAgreementId] = Agreement({
-            client: msg.sender,
-            freelancer: _freelancer,
-            totalAmount: _amount,
-            releasedAmount: 0,
-            isFunded: true,
-            isCompleted: false
-        });
-
-        emit AgreementCreated(
-            nextAgreementId,
+        agreementId = _createAndFundAgreement(
             msg.sender,
             _freelancer,
-            _amount
+            _amount,
+            _deadline,
+            v,
+            r,
+            s,
+            _clientRefId
         );
-        nextAgreementId++;
+    }
+
+    /**
+     * @notice Resolve agreement id by client and client reference id.
+     */
+    function getAgreementIdByClientRef(
+        address _client,
+        uint256 _clientRefId
+    ) external view returns (uint256) {
+        uint256 stored = agreementIdByClientRef[_client][_clientRefId];
+        require(stored != 0, "clientRefId not found");
+        return stored - 1;
     }
 
     /**
