@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { TicketSeverity } from '@prisma/client';
 import prisma from '../config/prisma';
 import { notifyUser } from '../config/notification-service';
 
