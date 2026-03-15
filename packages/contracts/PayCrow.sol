@@ -4,9 +4,10 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract PayCrowEscrow is ReentrancyGuard {
+contract PayCrowEscrow is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
     // This will point to your PayCrowUSD contract address
@@ -35,9 +36,14 @@ contract PayCrowEscrow is ReentrancyGuard {
         uint256 clientRefId
     );
     event FundsReleased(uint256 indexed id, uint256 amount);
+    event AdminFundsReleased(
+        uint256 indexed id,
+        address indexed recipient,
+        uint256 amount
+    );
     event AgreementClosed(uint256 indexed id);
 
-    constructor(address _tokenAddress) {
+    constructor(address _tokenAddress) Ownable(msg.sender) {
         require(_tokenAddress != address(0), "Invalid token address");
         token = IERC20(_tokenAddress);
     }
@@ -187,6 +193,41 @@ contract PayCrowEscrow is ReentrancyGuard {
         emit FundsReleased(_id, _amount);
 
         // Auto-close if fully paid
+        if (agg.releasedAmount == agg.totalAmount) {
+            agg.isCompleted = true;
+            emit AgreementClosed(_id);
+        }
+    }
+
+    /**
+     * @notice Admin-only release path for dispute resolution.
+     * @dev Allows the contract owner to release funds to either agreement participant.
+     */
+    function adminResolveRelease(
+        uint256 _id,
+        uint256 _amount,
+        address _recipient
+    ) external onlyOwner nonReentrant {
+        Agreement storage agg = agreements[_id];
+
+        require(agg.isFunded, "Agreement not funded");
+        require(!agg.isCompleted, "Agreement already closed");
+        require(_amount > 0, "Amount must be > 0");
+        require(_recipient != address(0), "Invalid recipient");
+        require(
+            _recipient == agg.client || _recipient == agg.freelancer,
+            "Recipient must be agreement participant"
+        );
+        require(
+            agg.releasedAmount + _amount <= agg.totalAmount,
+            "Exceeds total amount"
+        );
+
+        agg.releasedAmount += _amount;
+        token.safeTransfer(_recipient, _amount);
+
+        emit AdminFundsReleased(_id, _recipient, _amount);
+
         if (agg.releasedAmount == agg.totalAmount) {
             agg.isCompleted = true;
             emit AgreementClosed(_id);

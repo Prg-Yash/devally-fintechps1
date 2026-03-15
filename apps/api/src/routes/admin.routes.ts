@@ -12,6 +12,7 @@ import {
   getAdminTickets,
   getAdminUserById,
   getAdminUsers,
+  releaseAdminTicketFunds,
   updateAdminTicket,
 } from '../controllers/admin.controller';
 
@@ -27,6 +28,7 @@ router.get('/agreements/:agreementId', getAdminAgreementById);
 router.get('/tickets', getAdminTickets);
 router.get('/tickets/:ticketId', getAdminTicketById);
 router.patch('/tickets/:ticketId', updateAdminTicket);
+router.post('/tickets/:ticketId/release-funds', express.json(), releaseAdminTicketFunds);
 router.get('/purchases', getAdminPurchases);
 router.get('/purchases/:purchaseId', getAdminPurchaseById);
 

@@ -22,7 +22,11 @@ const navItems = [
   { href: "/purchases", label: "Purchases", icon: CreditCard },
 ];
 
-export default function PanelLayout({ children }: { children: React.ReactNode }) {
+export default function PanelLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
 
   return (
@@ -36,33 +40,41 @@ export default function PanelLayout({ children }: { children: React.ReactNode })
           {/* Logo Section */}
           <div className="flex items-center gap-4 border-b border-[#e6ecdf] px-6 py-10">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#d9dfcf] bg-[#f4f7ea]">
-               <Activity className="h-5 w-5 text-[#1A2406]" />
+              <Activity className="h-5 w-5 text-[#1A2406]" />
             </div>
-            <span className="font-bold text-xl tracking-[-0.04em]">Nexus Admin</span>
+            <span className="font-bold text-xl tracking-[-0.04em]">
+              PayCrow Admin
+            </span>
           </div>
 
           <nav className="flex-1 py-10 px-2 space-y-3">
             {navItems.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href || pathname.startsWith(href + "/");
+              const active =
+                pathname === href || pathname.startsWith(href + "/");
               return (
                 <Link key={href} href={href}>
                   <div
                     className={`relative flex items-center gap-4 px-4 py-4 rounded-xl transition-all duration-300 group cursor-pointer
-                      ${active
-                        ? "bg-[#f2f6e6] text-[#1A2406] shadow-[inset_0_0_0_1px_rgba(26,36,6,0.08)]"
-                        : "text-[#1A2406]/55 hover:bg-[#f6f8ef] hover:text-[#1A2406]"
+                      ${
+                        active
+                          ? "bg-[#f2f6e6] text-[#1A2406] shadow-[inset_0_0_0_1px_rgba(26,36,6,0.08)]"
+                          : "text-[#1A2406]/55 hover:bg-[#f6f8ef] hover:text-[#1A2406]"
                       }`}
                   >
                     {active && (
-                      <motion.div 
+                      <motion.div
                         layoutId="sidebar-active-pill"
                         className="absolute bottom-3 left-1 top-3 w-1 rounded-full bg-[#7e9156]"
                       />
                     )}
                     <div className="w-10 flex justify-center shrink-0">
-                      <Icon className={`h-5 w-5 transition-colors duration-300 ${active ? "text-[#1A2406]" : "text-[#1A2406]/45 group-hover:text-[#1A2406]"}`} />
+                      <Icon
+                        className={`h-5 w-5 transition-colors duration-300 ${active ? "text-[#1A2406]" : "text-[#1A2406]/45 group-hover:text-[#1A2406]"}`}
+                      />
                     </div>
-                    <span className={`text-sm font-medium whitespace-nowrap tracking-[-0.02em] ${active ? "opacity-100" : "opacity-80"}`}>
+                    <span
+                      className={`text-sm font-medium whitespace-nowrap tracking-[-0.02em] ${active ? "opacity-100" : "opacity-80"}`}
+                    >
                       {label}
                     </span>
                   </div>
@@ -78,7 +90,7 @@ export default function PanelLayout({ children }: { children: React.ReactNode })
                 className="group flex w-full items-center gap-4 rounded-xl px-4 py-4 text-[#1A2406]/55 transition-all duration-300 hover:bg-[#f7efe9] hover:text-[#1A2406]"
               >
                 <div className="w-10 flex justify-center shrink-0">
-                   <LogOut className="h-5 w-5 transition-colors duration-300 group-hover:text-red-500" />
+                  <LogOut className="h-5 w-5 transition-colors duration-300 group-hover:text-red-500" />
                 </div>
                 <span className="text-sm font-medium whitespace-nowrap tracking-[-0.02em]">
                   Sign Out
@@ -97,7 +109,9 @@ export default function PanelLayout({ children }: { children: React.ReactNode })
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#d9dfcf] bg-[#f4f7ea]">
               <Activity className="w-4 h-4 text-[#1A2406]" />
             </div>
-            <span className="font-bold text-lg tracking-[-0.04em]">Nexus Admin</span>
+            <span className="font-bold text-lg tracking-[-0.04em]">
+              PayCrow Admin
+            </span>
           </div>
         </div>
 

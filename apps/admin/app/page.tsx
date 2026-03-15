@@ -10,13 +10,22 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-[#fdfcf8] p-4 text-[#122016]">
       <div className="w-full max-w-md rounded-2xl border border-[#d9d0bf] bg-white p-8 shadow-[0_20px_44px_rgba(18,32,22,0.12)]">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-[#1d4c35]">Nexus Admin</h1>
-          <p className="mt-2 text-sm text-[#526157]">Sign in to access the control panel</p>
+          <h1 className="text-3xl font-bold tracking-tight text-[#1d4c35]">
+            PayCrow Admin
+          </h1>
+          <p className="mt-2 text-sm text-[#526157]">
+            Sign in to access the control panel
+          </p>
         </div>
 
         <form action={formAction} className="space-y-5">
           <div>
-            <label className="block text-sm font-bold text-[#122016] mb-1.5" htmlFor="email">Email</label>
+            <label
+              className="block text-sm font-bold text-[#122016] mb-1.5"
+              htmlFor="email"
+            >
+              Email
+            </label>
             <input
               type="email"
               id="email"
@@ -28,7 +37,12 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-[#122016] mb-1.5" htmlFor="password">Password</label>
+            <label
+              className="block text-sm font-bold text-[#122016] mb-1.5"
+              htmlFor="password"
+            >
+              Password
+            </label>
             <input
               type="password"
               id="password"
